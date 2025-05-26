@@ -87,9 +87,18 @@ def ler_alertas_enviados_do_gist():
         # O nome do arquivo dentro do Gist que estamos usando é 'alertas_enviados.txt'
         file_content = gist_data['files']['alertas_enviados.txt']['content']
         
-        # Cada linha no Gist é um hash de uma mensagem alertada
-        # Remove linhas vazias e converte para set de inteiros (hashes são inteiros)
-        alertas_lidos = set(int(line.strip()) for line in file_content.splitlines() if line.strip())
+        # Cada linha no Gist deve ser um hash de uma mensagem alertada
+        alertas_lidos = set()
+        for line in file_content.splitlines():
+            stripped_line = line.strip()
+            if stripped_line and not stripped_line.startswith('#'): # Ignora linhas vazias ou que começam com '#'
+                try:
+                    alertas_lidos.add(int(stripped_line))
+                except ValueError:
+                    print(f"Aviso: Ignorando linha inválida no Gist (não é um número): '{stripped_line[:50]}...'")
+
+        print(f"Alertas lidos do Gist: {len(alertas_lidos)} itens.")
+        return alertas_lidos
         print(f"Alertas lidos do Gist: {len(alertas_lidos)} itens.")
         return alertas_lidos
     except requests.exceptions.RequestException as e:
