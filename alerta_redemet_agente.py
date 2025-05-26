@@ -2,7 +2,7 @@ import os
 import requests
 import datetime
 import json
-import re # Importar para usar expressões regulares na análise
+import re
 
 # --- Configurações Importantes ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -17,7 +17,6 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
 
 # --- Sua Lista de Códigos de Tempo Severo e Critérios ---
 # Refinada com seus requisitos específicos!
-# A ordem aqui não importa tanto quanto a lógica em analisar_mensagem_meteorologica.
 CODIGOS_SEVEROS = [
     "TS",     # Tempestade
     "GR",     # Granizo
@@ -35,8 +34,8 @@ CODIGOS_SEVEROS = [
     # Ventos e Rajadas serão tratados separadamente por sua natureza numérica.
 ]
 
-# Lista de aeródromos a serem monitorados (Adicione os que você quer!)
-AERODROMOS_INTERESSE = ["SBBR", "SBGR", "SBGL", "SBSP", "SBKP", "SBCT"]
+# Lista de aeródromos a serem monitorados (AGORA APENAS SBTA!)
+AERODROMOS_INTERESSE = ["SBTA"] 
 
 # --- Funções de Comunicação e Análise ---
 
@@ -114,38 +113,19 @@ def obter_mensagens_redemet_simulada(endpoint, aerodromo=None):
     """
     print(f"Simulando busca de dados da REDEMET para {endpoint} em {aerodromo}...")
     
-    # EXEMPLOS DE MENSAGENS REAIS PARA TESTE (AJUSTE OU ADICIONE MAIS!)
-    # Estas mensagens são cruciais para testar sua lógica de análise!
+    # EXEMPLOS DE MENSAGENS REAIS PARA TESTE para SBTA!
     metar_simulado = {
-        "SBBR": "SBBR 261800Z 09005KT 9999 FEW030 SCT080 25/18 Q1015 NOSIG RMK",
-        "SBGR": "SBGR 261800Z 12025G35KT 5000 VCTS BR SCT008 BKN020 23/20 Q1012 RMK", # Exemplo: Vento > 20KT, Rajada > 20KT, VCTS
-        "SBGL": "SBGL 261800Z 08012KT 9999 TS FEW025CB BKN060 26/22 Q1010 TEMPO +RA RMK", # Exemplo: TS, +RA
-        "SBSP": "SBSP 261800Z 27003KT 0800 FG OVC005 20/20 Q1018 RMK", # Exemplo: FG, OVC005 (abaixo de 006)
-        "SBKP": "SBKP 261800Z 20015G25KT 9999 SHGR BKN004CB 24/21 Q1014 RMK", # Exemplo: Rajada > 20KT, SHGR, BKN004
-        "SBCT": "SBCT 261800Z 27005KT 9999 VV001 15/15 Q1020 NOSIG RMK", # Exemplo: VV001
-        "SBFL": "SBFL 261800Z 18022KT 9999 FEW030 20/10 Q1010 NOSIG RMK", # Exemplo: Vento > 20KT
-        "SBRJ": "SBRJ 261800Z 27010KT 9999 BKN005 25/18 Q1012 RMK" # Exemplo: BKN005 (abaixo de 006)
+        "SBTA": "SBTA 261800Z 12025G35KT 5000 VCTS BR SCT008 BKN005 23/20 Q1012 RMK", # Exemplo: Vento > 20KT, Rajada > 20KT, VCTS, BKN005
     }
     taf_simulado = {
-        "SBBR": "TAF SBBR 261700Z 2618/2718 10005KT 9999 SCT030 TX30/2716Z TN20/2708Z TEMPO 2700/2704 5000 SHRA BKN015",
-        "SBGR": "TAF SBGR 261700Z 2618/2718 12015G28KT 9999 SCT020 PROB40 2700/2703 2000 TSRA BKN008CB", # Exemplo: Rajada > 20KT, PROB40 TSRA
-        "SBGL": "TAF SBGL 261700Z 2618/2718 09008KT 9999 FEW020 BKN070 TX29/2715Z TN23/2706Z",
-        "SBSP": "TAF SBSP 261700Z 2618/2718 28003KT 2000 BR OVC005 BECMG 2700/2702 0800 FG OVC001", # Exemplo: OVC005 e FG em BECMG
-        "SBKP": "TAF SBKP 261700Z 2618/2718 20010KT 9999 SCT030 TEMPO 2620/2622 1000 WS BKN020CB", # Exemplo: WS
-        "SBCT": "TAF SBCT 261700Z 2618/2718 27005KT 9999 OVC005 BECMG 2700/2703 0800 FG OVC001"
+        "SBTA": "TAF SBTA 261700Z 2618/2718 12015G28KT 9999 SCT020 PROB40 2700/2703 2000 TSRA BKN008CB", # Exemplo: Rajada > 20KT, PROB40 TSRA
     }
     aviso_simulado = {
-        "SBGR": "AVISO DE AERODROMO: SBGR VISIBILIDADE REDUZIDA DEVIDO A NEVOEIRO FORTE ESPERADO ENTRE 02Z E 05Z.",
-        "SBBR": None,
-        "SBGL": None,
-        "SBSP": "AVISO DE AERODROMO: SBSP ALERTA DE FORTE CHUVA E POSSIVEL GRANIZO ENTRE 20Z E 22Z.",
-        "SBKP": "AVISO DE AERODROMO: SBKP FORTE VENTO ACIMA DE 30KT ESPERADO ATE 23Z.", # Exemplo de vento em aviso
-        "SBCT": "AVISO DE AERODROMO: SBCT CINZAS VULCANICAS (VA) PROVAVELMENTE AFETARÃO A AREA." # Exemplo de VA em aviso
+        "SBTA": "AVISO DE AERODROMO: SBTA VISIBILIDADE REDUZIDA DEVIDO A NEVOEIRO FORTE ESPERADO ENTRE 02Z E 05Z.",
     }
 
     if "METAR" in endpoint:
         mensagem = metar_simulado.get(aerodromo)
-        # Formato de retorno que simula a API (poderia ser uma lista direta de strings também)
         return {"data": [{"mensagem": mensagem}]} if mensagem else {"data": []}
     elif "TAF" in endpoint:
         mensagem = taf_simulado.get(aerodromo)
@@ -191,23 +171,19 @@ def analisar_mensagem_meteorologica(mensagem_texto):
         if codigo in mensagem_upper:
             # Lógica para "OVC" e "BKN" abaixo de 600 pés (006)
             if codigo in ["OVC", "BKN"]:
-                # Expressão regular para encontrar OVC/BKN seguido de 001 a 005
-                # OVC001, OVC002, OVC003, OVC004, OVC005
-                # BKN001, BKN002, BKN003, BKN004, BKN005
+                # Expressão regular para encontrar OVC/BKN seguido de 001 a 005 (100 a 500 pés)
                 if re.search(f"{codigo}00[1-5]", mensagem_upper): 
                     alertas_encontrados.append(f"{codigo} (TETO BAIXO < 600FT)")
             # Lógica para "FG" (Nevoeiro) - verificar visibilidade < 1000m
             elif codigo == "FG":
                 # Procura por FG e se a visibilidade está abaixo de 1000m (0800, 0500 etc.)
-                # O formato de visibilidade no METAR/TAF é 4 dígitos para metros.
-                # Ex: 0800 = 800m, 0500 = 500m
-                vis_match = re.search(r'\s(\d{4})\s', mensagem_upper)
+                vis_match = re.search(r'\s(\d{4})\s', mensagem_upper) # Busca 4 dígitos cercados por espaços
                 if vis_match:
                     visibility_meters = int(vis_match.group(1))
                     if visibility_meters < 1000:
                         alertas_encontrados.append(f"{codigo} (NEVOEIRO < 1000M VIS)")
-                else: # Se não encontrou visibilidade numérica, mas FG está presente
-                     alertas_encontrados.append(f"{codigo} (NEVOEIRO)") # Alerta mesmo sem a visibilidade explícita
+                elif "FG" in mensagem_upper: # Alerta mesmo sem a visibilidade explícita, se FG estiver presente
+                     alertas_encontrados.append(f"{codigo} (NEVOEIRO)") 
             # Lógica para "+RA" (Chuva Forte)
             elif codigo == "RA" and "+RA" in mensagem_upper:
                 alertas_encontrados.append("CHUVA FORTE (+RA)")
@@ -215,32 +191,27 @@ def analisar_mensagem_meteorologica(mensagem_texto):
             elif codigo in ["TS", "GR", "VA", "VCTS", "VCFG", "VV", "FU", "SHGR", "WS"]:
                 alertas_encontrados.append(codigo)
         
-        # Lógica para ventos acima de 20KT
-        # Ex: 09025KT (vento de 25 nós), 27018G30KT (vento de 18 nós, rajada de 30 nós)
-        # Regex para pegar o grupo de vento: DDDSS(GSS)KT
-        wind_match = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
-        if wind_match:
-            sustained_wind_str = wind_match.group(2)
-            gust_wind_str = wind_match.group(4) # Pode ser None se não houver rajada
+    # --- Lógica para ventos acima de 20KT e rajadas acima de 20KT ---
+    # Regex para pegar o grupo de vento: DDDSS(GSS)KT
+    # OVRB para vento variável
+    wind_match = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
+    if wind_match:
+        sustained_wind_str = wind_match.group(2)
+        gust_wind_str = wind_match.group(4) # Pode ser None se não houver rajada
 
-            sustained_wind = int(sustained_wind_str)
-            
-            if sustained_wind > 20:
-                alertas_encontrados.append(f"VENTO SUSTENTADO > 20KT ({sustained_wind}KT)")
-            
-            if gust_wind_str:
-                gust_wind = int(gust_wind_str)
-                if gust_wind > 20:
-                    alertas_encontrados.append(f"RAJADA DE VENTO > 20KT ({gust_wind}KT)")
+        sustained_wind = int(sustained_wind_str)
+        
+        if sustained_wind > 20:
+            alertas_encontrados.append(f"VENTO SUSTENTADO > 20KT ({sustained_wind}KT)")
+        
+        if gust_wind_str:
+            gust_wind = int(gust_wind_str)
+            if gust_wind > 20:
+                alertas_encontrados.append(f"RAJADA DE VENTO > 20KT ({gust_wind}KT)")
 
     # Lógica para TAF (previsão) - procurar por fenômenos e condições em TEMPO/BECMG/PROB30/40
-    # Reutiliza a lógica dos códigos severos, mas com prefixos de previsão.
     if "TAF" in mensagem_upper:
         for codigo in CODIGOS_SEVEROS:
-            # Atenção: para OVC/BKN e FG em TAF, a lógica pode ser mais complexa.
-            # Aqui, estamos buscando apenas a presença do código.
-            # Se você quiser analisar visibilidade/teto baixo em TAF com regex, seria similar ao METAR.
-            
             # Fenômenos com PROB30/40
             if f"PROB30 {codigo}" in mensagem_upper or f"PROB40 {codigo}" in mensagem_upper:
                  alertas_encontrados.append(f"PREVISÃO: PROB {codigo}")
@@ -250,18 +221,17 @@ def analisar_mensagem_meteorologica(mensagem_texto):
             if f"BECMG {codigo}" in mensagem_upper:
                 alertas_encontrados.append(f"PREVISÃO: BECMG {codigo}")
             
-            # Regras específicas para TAF que são semelhantes ao METAR
+            # Regras específicas para TAF que são semelhantes ao METAR para teto e visibilidade
             if codigo in ["OVC", "BKN"]:
-                if re.search(f"{codigo}00[1-5]", mensagem_upper): # Teto baixo em TAF
+                if re.search(f"{codigo}00[1-5]", mensagem_upper): 
                     alertas_encontrados.append(f"PREVISÃO: {codigo} (TETO BAIXO < 600FT)")
             if codigo == "FG":
                  if re.search(r'\s(\d{4})\s', mensagem_upper) and int(re.search(r'\s(\d{4})\s', mensagem_upper).group(1)) < 1000:
                     alertas_encontrados.append(f"PREVISÃO: {codigo} (NEVOEIRO < 1000M VIS)")
-                 elif "FG" in mensagem_upper: # Alerta mesmo sem visibilidade explícita
+                 elif "FG" in mensagem_upper:
                      alertas_encontrados.append(f"PREVISÃO: {codigo} (NEVOEIRO)")
 
         # Análise de vento em TAF (TEMPO/BECMG/PROB)
-        # O grupo de vento em TAF pode estar em seções como TEMPO ou BECMG
         # Regex para encontrar grupos de vento dentro de TEMPO/BECMG/PROB
         wind_groups_in_taf = re.findall(r'(TEMPO|BECMG|PROB\d{2})\s.*?(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
         for group in wind_groups_in_taf:
@@ -281,19 +251,14 @@ def analisar_mensagem_meteorologica(mensagem_texto):
 
 
     # Lógica para Avisos de Aeródromo (geralmente já são alertas por natureza)
-    # Apenas verifica se é um aviso e pode procurar por palavras-chave dos fenômenos desejados
     if "AVISO DE AERODROMO" in mensagem_upper or "ADVISORY" in mensagem_upper:
         aviso_fenomenos = []
-        for codigo in ["TS", "GR", "VA", "FG", "FU", "SHGR", "RA", "WS", "VENTO"]: # Vento é uma palavra-chave comum em avisos
-            if codigo in mensagem_upper:
-                if codigo == "RA" and "+RA" not in mensagem_upper: # Para avisos, 'RA' sozinho pode ser relevante
-                    if "CHUVA FORTE" in mensagem_upper: # Procura por texto explicativo
-                         aviso_fenomenos.append("CHUVA FORTE (AVISO)")
-                elif codigo == "VENTO":
-                    if "FORTE VENTO" in mensagem_upper or "RAJADA" in mensagem_upper:
-                        aviso_fenomenos.append("VENTO FORTE/RAJADA (AVISO)")
-                else:
-                    aviso_fenomenos.append(f"{codigo} (AVISO)")
+        # Para avisos, a busca é por palavras-chave mais descritivas, além dos códigos
+        for palavra_chave in ["TS", "GR", "VA", "FG", "FU", "SHGR", "+RA", "WS", 
+                              "TEMPESTADE", "GRANIZO", "CINZAS", "NEVOEIRO", "FUMAÇA", 
+                              "VISIBILIDADE REDUZIDA", "VENTO FORTE", "RAJADA", "CHUVA FORTE"]:
+            if palavra_chave in mensagem_upper:
+                aviso_fenomenos.append(palavra_chave)
         
         if aviso_fenomenos:
             alertas_encontrados.append(f"AVISO: {', '.join(aviso_fenomenos)}")
@@ -315,26 +280,19 @@ def main():
 
     # Para evitar enviar o mesmo alerta repetidamente NA MESMA EXECUÇÃO do workflow,
     # usamos um set que armazena os hashes das mensagens que já geraram um alerta.
-    # IMPORTANTE: Em cada nova execução do GitHub Actions (a cada 10 minutos), este set é zerado.
-    # Ou seja, se a mesma mensagem de alerta persistir por várias execuções, ela será enviada novamente.
-    # Para evitar isso, precisaríamos de um mecanismo de persistência externo (banco de dados, GitHub Gist etc.).
     mensagens_com_alerta_enviado_nesta_execucao = set()
 
-    for aerodromo in AERODROMOS_INTERESSE:
+    for aerodromo in AERODROMOS_INTERESSE: # Agora apenas SBTA
         for tipo, endpoint_chave in endpoints_para_verificar.items():
             print(f"Verificando {tipo} para aeródromo {aerodromo}...")
             
-            dados_brutos_api = obter_mensagens_redemet(endpoint_chave, aerodromo)
+            dados_brutos_api = obter_mensagens_redemet(endpoint_chave, aerodromo) # Chamará a função simulada
 
             if dados_brutos_api:
-                # Descomente a linha abaixo para inspecionar a estrutura do JSON da API real
-                # print(f"DEBUG - Dados brutos da API para {tipo} {aerodromo}: {json.dumps(dados_brutos_api, indent=2)}") 
-
                 mensagens_texto = processar_mensagens_redemet(tipo, dados_brutos_api)
 
                 if mensagens_texto:
                     for mensagem_individual in mensagens_texto:
-                        # Criar um hash da mensagem para verificar se já foi processada
                         hash_mensagem = hash(mensagem_individual)
 
                         if hash_mensagem in mensagens_com_alerta_enviado_nesta_execucao:
@@ -352,7 +310,7 @@ def main():
                             
                             print("\n" + alerta_final + "\n")
                             enviar_mensagem_telegram(alerta_final)
-                            mensagens_com_alerta_enviado_nesta_execucao.add(hash_mensagem) # Adiciona à lista de processados
+                            mensagens_com_alerta_enviado_nesta_execucao.add(hash_mensagem)
                         else:
                             print(f"  Mensagem {tipo} para {aerodromo} sem alertas severos: {mensagem_individual[:50]}...")
                 else:
