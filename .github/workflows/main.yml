@@ -1,43 +1,34 @@
 name: Alerta REDEMET (Agendado)
 
 on:
-  # Rodar automaticamente a cada 10 minutos (UTC)
   schedule:
-    # Sintaxe cron: minuto hora dia_do_mes mes dia_da_semana
-    # '*/10 * * * *' significa: a cada 10 minutos, toda hora, todo dia do mês, todo mês, todo dia da semana
     - cron: '*/10 * * * *' 
   
-  # Permite que você execute o workflow manualmente no GitHub (botão "Run workflow")
   workflow_dispatch:
 
-  # Comentado para evitar execuções em cada commit. 
-  # Se quiser que rode em cada commit *e* a cada 10 min, descomente as linhas abaixo:
-  # push:
-  #   branches:
-  #     - main 
-
 jobs:
-  rodar-alerta: # Nome do job que aparece nos logs do GitHub Actions
-    runs-on: ubuntu-latest # O ambiente virtual Linux onde o código vai rodar
+  rodar-alerta:
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checar o código do repositório
-      uses: actions/checkout@v4 # Pega o seu código do GitHub
+      uses: actions/checkout@v4
 
     - name: Configurar Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.9' # Garante que o Python 3.9 esteja disponível
+        python-version: '3.9'
 
     - name: Instalar dependências
       run: |
-        pip install requests # Instala a biblioteca 'requests' necessária para fazer requisições HTTP
+        pip install requests
 
     - name: Executar o script de alerta
-      # O bloco 'env' é crucial para passar os Secrets do GitHub para o script Python como variáveis de ambiente
       env: 
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }} # Mantido aqui para futura utilização, mesmo que não usado agora
+        REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }}
+        GIST_TOKEN: ${{ secrets.GIST_TOKEN }} # Adicionado
+        GIST_ID: ${{ secrets.GIST_ID }}       # Adicionado
       run: |
-        python alerta_redemet_agente.py # Roda o seu script Python
+        python alerta_redemet_agente.py
