@@ -3,11 +3,14 @@ import requests
 import datetime
 import json
 import re
+import time # Adicionado para pausas
 
 # --- Configurações Importantes ---
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 REDEMET_API_KEY = os.getenv("REDEMET_API_KEY")
+GIST_TOKEN = os.getenv("GIST_TOKEN") # Novo Secret para o token do Gist
+GIST_ID = os.getenv("GIST_ID")       # Novo Secret para o ID do Gist
 
 # Verifica se os tokens essenciais estão configurados
 if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
@@ -15,8 +18,12 @@ if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     print("Certifique-se de configurar TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID como GitHub Secrets.")
     exit()
 
+if not GIST_TOKEN or not GIST_ID:
+    print("Erro: GIST_TOKEN ou GIST_ID não encontrados nas variáveis de ambiente.")
+    print("Certifique-se de configurar GIST_TOKEN e GIST_ID como GitHub Secrets.")
+    exit()
+
 # --- Sua Lista de Códigos de Tempo Severo e Critérios ---
-# Refinada com seus requisitos específicos!
 CODIGOS_SEVEROS = [
     "TS",     # Tempestade
     "GR",     # Granizo
@@ -31,22 +38,17 @@ CODIGOS_SEVEROS = [
     "SHGR",   # Pancada de Granizo (GR pequeno)
     "RA",     # Chuva (com critério de +RA)
     "WS",     # Tesoura de Vento (Wind Shear)
-    # Ventos e Rajadas serão tratados separadamente por sua natureza numérica.
 ]
 
-# Lista de aeródromos a serem monitorados (AGORA APENAS SBTA!)
+# Lista de aeródromos a serem monitorados (APENAS SBTA)
 AERODROMOS_INTERESSE = ["SBTA"] 
 
-# --- Funções de Comunicação e Análise ---
+# --- Funções de Comunicação (Telegram e Gist) e Análise ---
 
 def enviar_mensagem_telegram(mensagem):
     """
     Função que envia uma mensagem para o seu bot do Telegram.
     """
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("Tokens do Telegram não configurados. Não é possível enviar alerta.")
-        return
-
     print(f"Tentando enviar mensagem para o Telegram: {mensagem[:100]}...")
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -65,6 +67,80 @@ def enviar_mensagem_telegram(mensagem):
         if 'response' in locals() and hasattr(response, 'text'):
             print(f"Resposta da API do Telegram: {response.text}")
 
+
+def ler_alertas_enviados_do_gist():
+    """
+    Lê a lista de hashes de alertas já enviados do GitHub Gist.
+    Retorna um set com os hashes lidos.
+    """
+    gist_url = f"https://api.github.com/gists/{GIST_ID}"
+    headers = {
+        "Authorization": f"token {GIST_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    try:
+        response = requests.get(gist_url, headers=headers, timeout=10)
+        response.raise_for_status()
+        gist_data = response.json()
+        
+        # O nome do arquivo dentro do Gist que estamos usando é 'alertas_enviados.txt'
+        file_content = gist_data['files']['alertas_enviados.txt']['content']
+        
+        # Cada linha no Gist é um hash de uma mensagem alertada
+        # Remove linhas vazias e converte para set de inteiros (hashes são inteiros)
+        alertas_lidos = set(int(line.strip()) for line in file_content.splitlines() if line.strip())
+        print(f"Alertas lidos do Gist: {len(alertas_lidos)} itens.")
+        return alertas_lidos
+    except requests.exceptions.RequestException as e:
+        print(f"Erro ao ler Gist {GIST_ID}: {e}")
+        # Se houver erro, assume que não há histórico para não bloquear o alerta
+        return set()
+    except KeyError:
+        print(f"Arquivo 'alertas_enviados.txt' não encontrado no Gist {GIST_ID}. Criando um novo.")
+        return set() # Se o arquivo não existe ou Gist está vazio, retorna um set vazio
+
+
+def atualizar_alertas_enviados_no_gist(novos_alertas_hashes):
+    """
+    Atualiza o GitHub Gist com a nova lista de hashes de alertas.
+    """
+    gist_url = f"https://api.github.com/gists/{GIST_ID}"
+    headers = {
+        "Authorization": f"token {GIST_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+
+    # Primeiro, lemos o conteúdo atual para não sobrescrever alertas antigos
+    alertas_existentes = ler_alertas_enviados_do_gist()
+    # Adiciona os novos alertas ao set existente
+    todos_alertas = alertas_existentes.union(novos_alertas_hashes)
+
+    # Converte o set de volta para uma string para gravação no Gist
+    content_to_write = "\n".join(str(h) for h in todos_alertas)
+
+    payload = {
+        "description": "IDs de Alertas REDEMET (Gerado por Agente GitHub Actions)",
+        "public": True,
+        "files": {
+            "alertas_enviados.txt": {
+                "content": content_to_write
+            }
+        }
+    }
+
+    try:
+        response = requests.patch(gist_url, headers=headers, json=payload, timeout=10) # PATCH para atualizar
+        response.raise_for_status()
+        print(f"Gist {GIST_ID} atualizado com {len(todos_alertas)} alertas.")
+    except requests.exceptions.RequestException as e:
+        print(f"Erro ao atualizar Gist {GIST_ID}: {e}")
+        if 'response' in locals() and hasattr(response, 'text'):
+            print(f"Resposta da API do GitHub Gist: {response.text}")
+
+
+# --- Funções de Obtenção de Mensagens (Real ou Simulada) ---
+
 def obter_mensagens_redemet_real(endpoint, aerodromo=None):
     """
     Esta função fará a chamada REAL para a API da REDEMET.
@@ -74,23 +150,23 @@ def obter_mensagens_redemet_real(endpoint, aerodromo=None):
         print("REDEMET_API_KEY não configurado. Não é possível chamar a API real.")
         return None
     
-    URL_BASE = "https://api.redemet.aer.mil.br/v1" # Exemplo, CONFIRME NA DOCUMENTAÇÃO!
+    URL_BASE = "https://api.redemet.aer.mil.br/v1" 
     
     if "METAR" in endpoint:
         url_completa = f"{URL_BASE}/metar/latest"
     elif "TAF" in endpoint:
         url_completa = f"{URL_BASE}/taf/forecast"
     elif "AVISO" in endpoint:
-         url_completa = f"{URL_BASE}/avisos_aerodromo" # Exemplo, CONFIRME NA DOCUMENTAÇÃO!
+         url_completa = f"{URL_BASE}/avisos_aerodromo" 
     else:
         print(f"Endpoint desconhecido: {endpoint}")
         return None
 
     headers = {
-        "x-api-key": REDEMET_API_KEY # Exemplo, CONFIRME NA DOCUMENTAÇÃO!
+        "x-api-key": REDEMET_API_KEY 
     }
     params = {
-        "localidade": aerodromo # Exemplo, CONFIRME NA DOCUMENTAÇÃO!
+        "localidade": aerodromo 
     }
 
     print(f"Buscando dados reais da REDEMET: {url_completa} (Aeródromo: {aerodromo})")
@@ -113,12 +189,13 @@ def obter_mensagens_redemet_simulada(endpoint, aerodromo=None):
     """
     print(f"Simulando busca de dados da REDEMET para {endpoint} em {aerodromo}...")
     
-    # EXEMPLOS DE MENSAGENS REAIS PARA TESTE para SBTA!
+    # EXEMPLOS DE MENSAGENS PARA TESTE SBTA:
+    # Ajuste estas mensagens para simular as condições que você deseja testar.
     metar_simulado = {
-        "SBTA": "SBTA 261800Z 12025G35KT 5000 VCTS BR SCT008 BKN005 23/20 Q1012 RMK", # Exemplo: Vento > 20KT, Rajada > 20KT, VCTS, BKN005
+        "SBTA": "SBTA 261800Z 12025G35KT 5000 VCTS BR SCT008 BKN005 23/20 Q1012 RMK", # Vento > 20KT, Rajada > 20KT, VCTS, BKN005
     }
     taf_simulado = {
-        "SBTA": "TAF SBTA 261700Z 2618/2718 12015G28KT 9999 SCT020 PROB40 2700/2703 2000 TSRA BKN008CB", # Exemplo: Rajada > 20KT, PROB40 TSRA
+        "SBTA": "TAF SBTA 261700Z 2618/2718 12015G28KT 9999 SCT020 PROB40 2700/2703 2000 TSRA BKN008CB", # Rajada > 20KT, PROB40 TSRA
     }
     aviso_simulado = {
         "SBTA": "AVISO DE AERODROMO: SBTA VISIBILIDADE REDUZIDA DEVIDO A NEVOEIRO FORTE ESPERADO ENTRE 02Z E 05Z.",
@@ -171,18 +248,16 @@ def analisar_mensagem_meteorologica(mensagem_texto):
         if codigo in mensagem_upper:
             # Lógica para "OVC" e "BKN" abaixo de 600 pés (006)
             if codigo in ["OVC", "BKN"]:
-                # Expressão regular para encontrar OVC/BKN seguido de 001 a 005 (100 a 500 pés)
                 if re.search(f"{codigo}00[1-5]", mensagem_upper): 
                     alertas_encontrados.append(f"{codigo} (TETO BAIXO < 600FT)")
             # Lógica para "FG" (Nevoeiro) - verificar visibilidade < 1000m
             elif codigo == "FG":
-                # Procura por FG e se a visibilidade está abaixo de 1000m (0800, 0500 etc.)
-                vis_match = re.search(r'\s(\d{4})\s', mensagem_upper) # Busca 4 dígitos cercados por espaços
+                vis_match = re.search(r'\s(\d{4})\s', mensagem_upper) 
                 if vis_match:
                     visibility_meters = int(vis_match.group(1))
                     if visibility_meters < 1000:
                         alertas_encontrados.append(f"{codigo} (NEVOEIRO < 1000M VIS)")
-                elif "FG" in mensagem_upper: # Alerta mesmo sem a visibilidade explícita, se FG estiver presente
+                elif "FG" in mensagem_upper: 
                      alertas_encontrados.append(f"{codigo} (NEVOEIRO)") 
             # Lógica para "+RA" (Chuva Forte)
             elif codigo == "RA" and "+RA" in mensagem_upper:
@@ -192,12 +267,10 @@ def analisar_mensagem_meteorologica(mensagem_texto):
                 alertas_encontrados.append(codigo)
         
     # --- Lógica para ventos acima de 20KT e rajadas acima de 20KT ---
-    # Regex para pegar o grupo de vento: DDDSS(GSS)KT
-    # OVRB para vento variável
     wind_match = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
     if wind_match:
         sustained_wind_str = wind_match.group(2)
-        gust_wind_str = wind_match.group(4) # Pode ser None se não houver rajada
+        gust_wind_str = wind_match.group(4) 
 
         sustained_wind = int(sustained_wind_str)
         
@@ -212,16 +285,13 @@ def analisar_mensagem_meteorologica(mensagem_texto):
     # Lógica para TAF (previsão) - procurar por fenômenos e condições em TEMPO/BECMG/PROB30/40
     if "TAF" in mensagem_upper:
         for codigo in CODIGOS_SEVEROS:
-            # Fenômenos com PROB30/40
             if f"PROB30 {codigo}" in mensagem_upper or f"PROB40 {codigo}" in mensagem_upper:
                  alertas_encontrados.append(f"PREVISÃO: PROB {codigo}")
-            # Fenômenos com TEMPO ou BECMG
             if f"TEMPO {codigo}" in mensagem_upper:
                 alertas_encontrados.append(f"PREVISÃO: TEMPO {codigo}")
             if f"BECMG {codigo}" in mensagem_upper:
                 alertas_encontrados.append(f"PREVISÃO: BECMG {codigo}")
             
-            # Regras específicas para TAF que são semelhantes ao METAR para teto e visibilidade
             if codigo in ["OVC", "BKN"]:
                 if re.search(f"{codigo}00[1-5]", mensagem_upper): 
                     alertas_encontrados.append(f"PREVISÃO: {codigo} (TETO BAIXO < 600FT)")
@@ -231,13 +301,11 @@ def analisar_mensagem_meteorologica(mensagem_texto):
                  elif "FG" in mensagem_upper:
                      alertas_encontrados.append(f"PREVISÃO: {codigo} (NEVOEIRO)")
 
-        # Análise de vento em TAF (TEMPO/BECMG/PROB)
-        # Regex para encontrar grupos de vento dentro de TEMPO/BECMG/PROB
         wind_groups_in_taf = re.findall(r'(TEMPO|BECMG|PROB\d{2})\s.*?(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
         for group in wind_groups_in_taf:
             prefix = group[0]
             sustained_wind_str = group[2]
-            gust_wind_str = group[4] # Pode ser None
+            gust_wind_str = group[4] 
             
             sustained_wind = int(sustained_wind_str)
             
@@ -253,7 +321,6 @@ def analisar_mensagem_meteorologica(mensagem_texto):
     # Lógica para Avisos de Aeródromo (geralmente já são alertas por natureza)
     if "AVISO DE AERODROMO" in mensagem_upper or "ADVISORY" in mensagem_upper:
         aviso_fenomenos = []
-        # Para avisos, a busca é por palavras-chave mais descritivas, além dos códigos
         for palavra_chave in ["TS", "GR", "VA", "FG", "FU", "SHGR", "+RA", "WS", 
                               "TEMPESTADE", "GRANIZO", "CINZAS", "NEVOEIRO", "FUMAÇA", 
                               "VISIBILIDADE REDUZIDA", "VENTO FORTE", "RAJADA", "CHUVA FORTE"]:
@@ -262,11 +329,11 @@ def analisar_mensagem_meteorologica(mensagem_texto):
         
         if aviso_fenomenos:
             alertas_encontrados.append(f"AVISO: {', '.join(aviso_fenomenos)}")
-        else: # Se o aviso não contiver os códigos específicos, ainda é um aviso.
+        else:
             alertas_encontrados.append("AVISO DE AERÓDROMO (GENÉRICO)")
 
 
-    return list(set(alertas_encontrados)) # Retorna apenas alertas únicos
+    return list(set(alertas_encontrados))
 
 # --- Lógica Principal do Agente ---
 def main():
@@ -278,31 +345,34 @@ def main():
         "AVISO": "AVISO"
     }
 
-    # Para evitar enviar o mesmo alerta repetidamente NA MESMA EXECUÇÃO do workflow,
-    # usamos um set que armazena os hashes das mensagens que já geraram um alerta.
-    mensagens_com_alerta_enviado_nesta_execucao = set()
+    # Carrega os hashes de mensagens já alertadas do Gist
+    alertas_enviados_historico = ler_alertas_enviados_do_gist()
+    # Este set temporário irá armazenar os novos hashes de alertas desta execução
+    novos_alertas_nesta_execucao = set()
 
-    for aerodromo in AERODROMOS_INTERESSE: # Agora apenas SBTA
+    for aerodromo in AERODROMOS_INTERESSE: 
         for tipo, endpoint_chave in endpoints_para_verificar.items():
             print(f"Verificando {tipo} para aeródromo {aerodromo}...")
             
-            dados_brutos_api = obter_mensagens_redemet(endpoint_chave, aerodromo) # Chamará a função simulada
+            dados_brutos_api = obter_mensagens_redemet(endpoint_chave, aerodromo)
 
             if dados_brutos_api:
                 mensagens_texto = processar_mensagens_redemet(tipo, dados_brutos_api)
 
                 if mensagens_texto:
                     for mensagem_individual in mensagens_texto:
+                        # Hash da mensagem para identificação única
                         hash_mensagem = hash(mensagem_individual)
 
-                        if hash_mensagem in mensagens_com_alerta_enviado_nesta_execucao:
-                            print(f"  Mensagem {tipo} para {aerodromo} já alertada nesta execução: {mensagem_individual[:50]}...")
-                            continue 
+                        # Verifica se o alerta já foi enviado anteriormente (usando o histórico do Gist)
+                        if hash_mensagem in alertas_enviados_historico:
+                            print(f"  Mensagem {tipo} para {aerodromo} já alertada anteriormente: {mensagem_individual[:50]}...")
+                            continue # Pula para a próxima mensagem se já foi alertada
 
                         alertas = analisar_mensagem_meteorologica(mensagem_individual)
 
                         if alertas:
-                            alerta_final = f"🚨 *ALERTA REDEMET - TEMPO SEVERO!* 🚨\n\n"
+                            alerta_final = f"🚨 *NOVO ALERTA REDEMET - TEMPO SEVERO!* 🚨\n\n"
                             alerta_final += f"**Aeródromo:** {aerodromo.upper()} - **Tipo:** {tipo}\n"
                             alerta_final += f"**Condições Encontradas:** {', '.join(alertas)}\n\n"
                             alerta_final += f"**Mensagem Original:**\n```\n{mensagem_individual}\n```\n"
@@ -310,13 +380,24 @@ def main():
                             
                             print("\n" + alerta_final + "\n")
                             enviar_mensagem_telegram(alerta_final)
-                            mensagens_com_alerta_enviado_nesta_execucao.add(hash_mensagem)
+                            
+                            # Adiciona o hash da mensagem ao set de novos alertas para gravação no Gist
+                            novos_alertas_nesta_execucao.add(hash_mensagem)
+                            
+                            # Pequena pausa para evitar rate limit do Telegram se houver muitos alertas
+                            time.sleep(1) 
                         else:
                             print(f"  Mensagem {tipo} para {aerodromo} sem alertas severos: {mensagem_individual[:50]}...")
                 else:
                     print(f"Nenhuma mensagem de texto extraída para {tipo} em {aerodromo}. Verifique 'processar_mensagens_redemet'.")
             else:
                 print(f"Não foi possível obter dados para {tipo} em {aerodromo}.")
+
+    # Atualiza o Gist com todos os novos alertas enviados nesta execução
+    if novos_alertas_nesta_execucao:
+        atualizar_alertas_enviados_no_gist(novos_alertas_nesta_execucao)
+    else:
+        print("Nenhum novo alerta para registrar no Gist nesta execução.")
 
     print(f"[{datetime.datetime.now()}] Verificação de alerta concluída.")
 
