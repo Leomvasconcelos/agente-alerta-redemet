@@ -24,4 +24,4 @@ jobs:
 
     - name: Executar o script Python
       run: |
-        python meu_primeiro_script.py # Roda o script que você criou
+        python alerta_redemet_agente.py # Roda o script que você criou
