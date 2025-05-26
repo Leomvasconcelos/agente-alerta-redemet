@@ -1,26 +1,6 @@
 name: Teste de Agente Simples
 
 on:
-  # Isso significa que o workflow vai rodar quando você enviar algo para o GitHub
-  push:
-    branches:
-      - main # O nome da sua branch principal (geralmente é 'main' ou 'master')
-
-  # E também permite que você execute manualmente no GitHub
-  workflow_dispatch:
-
-jobs:
-  rodar-script-python:
-    runs-on: ubuntu-latest # O ambiente onde seu código vai rodar (um computador virtual Linux)
-
-    steps:
-    - name: Checar o código do repositório
-      uses: actions/checkout@v4 # Pega o seu código do GitHub
-
-    - name: Configurar Python
-      name: Teste de Agente Simples
-
-on:
   push:
     branches:
       - main
@@ -40,17 +20,10 @@ jobs:
       with:
         python-version: '3.9'
 
-    - name: Instalar dependências # <-- NOVO PASSO AQUI!
+    - name: Instalar dependências
       run: |
-        pip install requests # Este comando instala a biblioteca 'requests'
+        pip install requests
 
     - name: Executar o script Python
       run: |
         python alerta_redemet_agente.py
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.9' # Garante que o Python 3.9 esteja disponível
-
-    - name: Executar o script Python
-      run: |
-        python alerta_redemet_agente.py # Roda o script que você criou
