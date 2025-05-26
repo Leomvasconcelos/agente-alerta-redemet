@@ -372,7 +372,7 @@ def main():
                         alertas = analisar_mensagem_meteorologica(mensagem_individual)
 
                         if alertas:
-                            alerta_final = f"🚨 *NOVO ALERTA REDEMET - TEMPO SEVERO!* 🚨\n\n"
+                            alerta_final = f"🚨 *NOVO ALERTA SBTA - TEMPO SEVERO!* 🚨\n\n"
                             alerta_final += f"**Aeródromo:** {aerodromo.upper()} - **Tipo:** {tipo}\n"
                             alerta_final += f"**Condições Encontradas:** {', '.join(alertas)}\n\n"
                             alerta_final += f"**Mensagem Original:**\n```\n{mensagem_individual}\n```\n"
