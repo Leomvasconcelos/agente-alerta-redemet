@@ -25,5 +25,9 @@ jobs:
         pip install requests
 
     - name: Executar o script Python
+      env: # <-- NOVO BLOCO AQUI! Preste atenção na indentação.
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }} # Pega o Secret e transforma em variável de ambiente
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}   # Pega o Secret e transforma em variável de ambiente
+        REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }}     # Pega o Secret e transforma em variável de ambiente (para o futuro)
       run: |
         python alerta_redemet_agente.py
