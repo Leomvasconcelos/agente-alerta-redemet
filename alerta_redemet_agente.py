@@ -24,21 +24,21 @@ if not GIST_TOKEN or not GIST_ID:
     exit()
 
 # --- Sua Lista de Códigos de Tempo Severo e Critérios ---
-CODIGOS_SEVEROS = [
-    "TS",     # Tempestade
-    "GR",     # Granizo
-    "VA",     # Cinzas Vulcânicas
-    "VCTS",   # Tempestade Próxima
-    "VCFG",   # Nevoeiro Próximo
-    "VV",     # Visibilidade Vertical (Céu Obscurecido, Teto Ilimitado)
-    "OVC",    # Coberto (com critério de teto)
-    "BKN",    # Quebrado (com critério de teto)
-    "FG",     # Nevoeiro (com critério de visibilidade)
-    "FU",     # Fumaça
-    "SHGR",   # Pancada de Granizo (GR pequeno)
-    "RA",     # Chuva (com critério de +RA)
-    "WS",     # Tesoura de Vento (Wind Shear)
-]
+# Mapeamento de códigos METAR/TAF para descrições amigáveis
+CODIGOS_METAR_TAF_MAP = {
+    "TS": "Trovoada",
+    "GR": "Granizo",
+    "VA": "Cinzas Vulcânicas",
+    "VCTS": "Trovoada na Vizinhança",
+    "VCFG": "Nevoeiro na Vizinhança",
+    "VV": "Céu Obscurecido (Visibilidade Vertical)",
+    "FU": "Fumaça",
+    "SHGR": "Pancada de Granizo",
+    "WS": "Tesoura de Vento (Wind Shear)",
+    # "RA" e "FG" serão tratados separadamente pela visibilidade/intensidade
+    # "OVC", "BKN" serão tratados separadamente pela altura
+    "CB": "Cumulunimbus", # Adicionado para mapeamento
+}
 
 # Lista de aeródromos a serem monitorados (APENAS SBTA)
 AERODROMOS_INTERESSE = ["SBTA"] 
@@ -84,30 +84,25 @@ def ler_alertas_enviados_do_gist():
         response.raise_for_status()
         gist_data = response.json()
         
-        # O nome do arquivo dentro do Gist que estamos usando é 'alertas_enviados.txt'
         file_content = gist_data['files']['alertas_enviados.txt']['content']
         
-        # --- AQUI ESTÁ A CORREÇÃO PARA IGNORAR LINHAS DE COMENTÁRIO OU INVÁLIDAS ---
         alertas_lidos = set()
         for line in file_content.splitlines():
             stripped_line = line.strip()
-            # Ignora linhas vazias ou que começam com '#'
             if stripped_line and not stripped_line.startswith('#'): 
                 try:
                     alertas_lidos.add(int(stripped_line))
                 except ValueError:
-                    # Imprime um aviso, mas não para a execução
                     print(f"Aviso: Ignorando linha inválida no Gist (não é um número): '{stripped_line[:50]}...'")
 
         print(f"Alertas lidos do Gist: {len(alertas_lidos)} itens.")
         return alertas_lidos
     except requests.exceptions.RequestException as e:
         print(f"Erro ao ler Gist {GIST_ID}: {e}")
-        # Se houver erro de rede/API, assume que não há histórico para não bloquear o alerta
         return set()
     except KeyError:
         print(f"Arquivo 'alertas_enviados.txt' não encontrado no Gist {GIST_ID} ou Gist vazio. Criando um novo.")
-        return set() # Se o arquivo não existe ou Gist está vazio, retorna um set vazio
+        return set()
 
 
 def atualizar_alertas_enviados_no_gist(novos_alertas_hashes):
@@ -120,12 +115,9 @@ def atualizar_alertas_enviados_no_gist(novos_alertas_hashes):
         "Accept": "application/vnd.github.v3+json"
     }
 
-    # Primeiro, lemos o conteúdo atual para não sobrescrever alertas antigos
     alertas_existentes = ler_alertas_enviados_do_gist()
-    # Adiciona os novos alertas ao set existente
     todos_alertas = alertas_existentes.union(novos_alertas_hashes)
 
-    # Converte o set de volta para uma string para gravação no Gist
     content_to_write = "\n".join(str(h) for h in todos_alertas)
 
     payload = {
@@ -139,7 +131,7 @@ def atualizar_alertas_enviados_no_gist(novos_alertas_hashes):
     }
 
     try:
-        response = requests.patch(gist_url, headers=headers, json=payload, timeout=10) # PATCH para atualizar
+        response = requests.patch(gist_url, headers=headers, json=payload, timeout=10) 
         response.raise_for_status()
         print(f"Gist {GIST_ID} atualizado com {len(todos_alertas)} alertas.")
     except requests.exceptions.RequestException as e:
@@ -161,7 +153,7 @@ def obter_mensagens_redemet_real(endpoint, aerodromo=None):
     
     URL_BASE = "https://api.redemet.aer.mil.br/v1" 
     
-    if "METAR" in endpoint:
+    if "METAR" in endpoint or "SPECI" in endpoint: # SPECI é tratado como METAR
         url_completa = f"{URL_BASE}/metar/latest"
     elif "TAF" in endpoint:
         url_completa = f"{URL_BASE}/taf/forecast"
@@ -200,17 +192,24 @@ def obter_mensagens_redemet_simulada(endpoint, aerodromo=None):
     
     # EXEMPLOS DE MENSAGENS PARA TESTE SBTA:
     metar_simulado = {
-        "SBTA": "SBTA 261800Z 12025G35KT 5000 VCTS BR SCT008 BKN005 23/20 Q1012 RMK", # Vento > 20KT, Rajada > 20KT, VCTS, BKN005
+        "SBTA": "METAR SBTA 222200Z 17025KT 9999 TS SCT030 FEW040CB BKN100 21/17 Q1019=" # Exemplo METAR com TS, CB, Vento
+    }
+    speci_simulado = {
+        "SBTA": "SPECI SBTA 222230Z 27030G45KT 9999 VCTS SCT030 FEW020CB BKN100 21/17 Q1019=" # Exemplo SPECI com VCTS, CB, Vento+Rajada
     }
     taf_simulado = {
         "SBTA": "TAF SBTA 261700Z 2618/2718 12015G28KT 9999 SCT020 PROB40 2700/2703 2000 TSRA BKN008CB", # Rajada > 20KT, PROB40 TSRA
     }
+    # Exemplo de Aviso de Aeródromo com o formato que você forneceu:
     aviso_simulado = {
-        "SBTA": "AVISO DE AERODROMO: SBTA VISIBILIDADE REDUZIDA DEVIDO A NEVOEIRO FORTE ESPERADO ENTRE 02Z E 05Z.",
+        "SBTA": "AVISO DE AERODROMO: SBGL SBSJ/SBTA AD WRNG 1 VALID 222240/230210 TS SFC WSPD 15KT MAX 25 FCST NC=", # Exemplo AVISO
     }
 
-    if "METAR" in endpoint:
+    if "METAR" in endpoint: # Inclui SPECI
         mensagem = metar_simulado.get(aerodromo)
+        return {"data": [{"mensagem": mensagem}]} if mensagem else {"data": []}
+    elif "SPECI" in endpoint: # Para simular SPECI separadamente, se precisar
+        mensagem = speci_simulado.get(aerodromo)
         return {"data": [{"mensagem": mensagem}]} if mensagem else {"data": []}
     elif "TAF" in endpoint:
         mensagem = taf_simulado.get(aerodromo)
@@ -225,25 +224,26 @@ def obter_mensagens_redemet_simulada(endpoint, aerodromo=None):
 obter_mensagens_redemet = obter_mensagens_redemet_simulada
 
 
-def processar_mensagens_redemet(tipo_mensagem, dados_api):
+def processar_mensagens_redemet(tipo_mensagem_solicitada, dados_api):
     """
     Processa os dados retornados pela API (real ou simulada) e extrai as mensagens de texto.
-    ESTA FUNÇÃO É CRÍTICA E PRECISA SER AJUSTADA COM BASE NA ESTRUTURA REAL DO JSON DA API DA REDEMET.
+    Atribui o tipo de mensagem correto (METAR, SPECI, TAF, AVISO).
     """
     mensagens_encontradas = []
 
     if isinstance(dados_api, dict) and 'data' in dados_api and isinstance(dados_api['data'], list):
         for item in dados_api['data']:
             if isinstance(item, dict) and 'mensagem' in item:
-                mensagens_encontradas.append(item['mensagem'])
-        
-    elif isinstance(dados_api, list) and all(isinstance(item, str) for item in dados_api):
-        mensagens_encontradas.extend(dados_api)
-
+                msg_texto = item['mensagem']
+                # Detecta SPECI pelo texto da mensagem, se for o caso
+                if "SPECI" in msg_texto.upper() and tipo_mensagem_solicitada == "METAR": # Se foi solicitado METAR, mas é SPECI
+                    mensagens_encontradas.append({"tipo": "SPECI", "texto": msg_texto})
+                else:
+                    mensagens_encontradas.append({"tipo": tipo_mensagem_solicitada, "texto": msg_texto})
     return mensagens_encontradas
 
 
-def analisar_mensagem_meteorologica(mensagem_texto):
+def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
     """
     Função para o robô 'ler' a mensagem e procurar por códigos severos e contexto.
     Retorna uma lista dos alertas de texto encontrados, com base nos seus critérios.
@@ -252,27 +252,35 @@ def analisar_mensagem_meteorologica(mensagem_texto):
     mensagem_upper = mensagem_texto.upper()
 
     # --- Análise de Fenômenos Específicos (METAR/TAF/Aviso) ---
-    for codigo in CODIGOS_SEVEROS:
-        if codigo in mensagem_upper:
+    for codigo_icao, descricao in CODIGOS_METAR_TAF_MAP.items():
+        if codigo_icao in mensagem_upper:
             # Lógica para "OVC" e "BKN" abaixo de 600 pés (006)
-            if codigo in ["OVC", "BKN"]:
-                if re.search(f"{codigo}00[1-5]", mensagem_upper): 
-                    alertas_encontrados.append(f"{codigo} (TETO BAIXO < 600FT)")
+            if codigo_icao in ["OVC", "BKN"]:
+                if re.search(f"{codigo_icao}00[1-5]", mensagem_upper): 
+                    alertas_encontrados.append(f"{descricao} (TETO BAIXO < 600FT)")
             # Lógica para "FG" (Nevoeiro) - verificar visibilidade < 1000m
-            elif codigo == "FG":
+            elif codigo_icao == "FG":
                 vis_match = re.search(r'\s(\d{4})\s', mensagem_upper) 
                 if vis_match:
                     visibility_meters = int(vis_match.group(1))
                     if visibility_meters < 1000:
-                        alertas_encontrados.append(f"{codigo} (NEVOEIRO < 1000M VIS)")
-                elif "FG" in mensagem_upper: 
-                     alertas_encontrados.append(f"{codigo} (NEVOEIRO)") 
+                        alertas_encontrados.append(f"{descricao} (VISIBILIDADE < 1000M)")
+                elif "FG" in mensagem_upper: # Se FG está presente, mas visibilidade não foi especificada ou é maior.
+                     alertas_encontrados.append(descricao) 
             # Lógica para "+RA" (Chuva Forte)
-            elif codigo == "RA" and "+RA" in mensagem_upper:
-                alertas_encontrados.append("CHUVA FORTE (+RA)")
+            elif codigo_icao == "RA" and "+RA" in mensagem_upper:
+                alertas_encontrados.append("Chuva Forte")
+            # Lógica para CB (Cumulunimbus) com altura
+            elif codigo_icao == "CB":
+                cb_match = re.search(r'(FEW|SCT|BKN|OVC)(\d{3})CB', mensagem_upper)
+                if cb_match:
+                    cloud_height = int(cb_match.group(2)) * 100
+                    alertas_encontrados.append(f"{descricao} a {cloud_height}FT")
+                else: # Se CB está, mas sem altura específica na formação
+                    alertas_encontrados.append(descricao)
             # Outros códigos que são diretos
-            elif codigo in ["TS", "GR", "VA", "VCTS", "VCFG", "VV", "FU", "SHGR", "WS"]:
-                alertas_encontrados.append(codigo)
+            else: # Para códigos como TS, GR, VA, VCTS, VCFG, VV, FU, SHGR, WS
+                alertas_encontrados.append(descricao)
         
     # --- Lógica para ventos acima de 20KT e rajadas acima de 20KT ---
     wind_match = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
@@ -282,33 +290,41 @@ def analisar_mensagem_meteorologica(mensagem_texto):
 
         sustained_wind = int(sustained_wind_str)
         
+        wind_desc = []
         if sustained_wind > 20:
-            alertas_encontrados.append(f"VENTO SUSTENTADO > 20KT ({sustained_wind}KT)")
+            wind_desc.append(f"Vento Médio de {sustained_wind}KT")
         
         if gust_wind_str:
             gust_wind = int(gust_wind_str)
             if gust_wind > 20:
-                alertas_encontrados.append(f"RAJADA DE VENTO > 20KT ({gust_wind}KT)")
+                wind_desc.append(f"Rajadas de {gust_wind}KT")
+
+        if wind_desc: # Se houve vento ou rajada acima do limite
+            alertas_encontrados.append(" e ".join(wind_desc))
 
     # Lógica para TAF (previsão) - procurar por fenômenos e condições em TEMPO/BECMG/PROB30/40
-    if "TAF" in mensagem_upper:
-        for codigo in CODIGOS_SEVEROS:
-            if f"PROB30 {codigo}" in mensagem_upper or f"PROB40 {codigo}" in mensagem_upper:
-                 alertas_encontrados.append(f"PREVISÃO: PROB {codigo}")
-            if f"TEMPO {codigo}" in mensagem_upper:
-                alertas_encontrados.append(f"PREVISÃO: TEMPO {codigo}")
-            if f"BECMG {codigo}" in mensagem_upper:
-                alertas_encontrados.append(f"PREVISÃO: BECMG {codigo}")
+    if "TAF" in tipo_mensagem.upper():
+        for codigo_icao, descricao in CODIGOS_METAR_TAF_MAP.items():
+            # Fenômenos em PROB, TEMPO, BECMG
+            if f"PROB30 {codigo_icao}" in mensagem_upper or f"PROB40 {codigo_icao}" in mensagem_upper:
+                 alertas_encontrados.append(f"PREVISÃO PROB: {descricao}")
+            if f"TEMPO {codigo_icao}" in mensagem_upper:
+                alertas_encontrados.append(f"PREVISÃO TEMPO: {descricao}")
+            if f"BECMG {codigo_icao}" in mensagem_upper:
+                alertas_encontrados.append(f"PREVISÃO BECMG: {descricao}")
             
-            if codigo in ["OVC", "BKN"]:
-                if re.search(f"{codigo}00[1-5]", mensagem_upper): 
-                    alertas_encontrados.append(f"PREVISÃO: {codigo} (TETO BAIXO < 600FT)")
-            if codigo == "FG":
+            # Teto baixo em TAF
+            if codigo_icao in ["OVC", "BKN"]:
+                if re.search(f"{codigo_icao}00[1-5]", mensagem_upper): 
+                    alertas_encontrados.append(f"PREVISÃO: {descricao} (TETO BAIXO < 600FT)")
+            # Nevoeiro em TAF
+            if codigo_icao == "FG":
                  if re.search(r'\s(\d{4})\s', mensagem_upper) and int(re.search(r'\s(\d{4})\s', mensagem_upper).group(1)) < 1000:
-                    alertas_encontrados.append(f"PREVISÃO: {codigo} (NEVOEIRO < 1000M VIS)")
+                    alertas_encontrados.append(f"PREVISÃO: {descricao} (VISIBILIDADE < 1000M)")
                  elif "FG" in mensagem_upper:
-                     alertas_encontrados.append(f"PREVISÃO: {codigo} (NEVOEIRO)")
+                     alertas_encontrados.append(f"PREVISÃO: {descricao}")
 
+        # Ventos e rajadas em TAF
         wind_groups_in_taf = re.findall(r'(TEMPO|BECMG|PROB\d{2})\s.*?(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
         for group in wind_groups_in_taf:
             prefix = group[0]
@@ -317,91 +333,164 @@ def analisar_mensagem_meteorologica(mensagem_texto):
             
             sustained_wind = int(sustained_wind_str)
             
+            wind_desc_taf = []
             if sustained_wind > 20:
-                alertas_encontrados.append(f"PREVISÃO {prefix}: VENTO SUSTENTADO > 20KT ({sustained_wind}KT)")
+                wind_desc_taf.append(f"Vento Médio de {sustained_wind}KT")
             
             if gust_wind_str:
                 gust_wind = int(gust_wind_str)
                 if gust_wind > 20:
-                    alertas_encontrados.append(f"PREVISÃO {prefix}: RAJADA DE VENTO > 20KT ({gust_wind}KT)")
+                    wind_desc_taf.append(f"Rajadas de {gust_wind}KT")
+
+            if wind_desc_taf:
+                alertas_encontrados.append(f"PREVISÃO {prefix}: {' e '.join(wind_desc_taf)}")
 
 
     # Lógica para Avisos de Aeródromo (geralmente já são alertas por natureza)
-    if "AVISO DE AERODROMO" in mensagem_upper or "ADVISORY" in mensagem_upper:
-        aviso_fenomenos = []
-        for palavra_chave in ["TS", "GR", "VA", "FG", "FU", "SHGR", "+RA", "WS", 
-                              "TEMPESTADE", "GRANIZO", "CINZAS", "NEVOEIRO", "FUMAÇA", 
-                              "VISIBILIDADE REDUZIDA", "VENTO FORTE", "RAJADA", "CHUVA FORTE"]:
-            if palavra_chave in mensagem_upper:
-                aviso_fenomenos.append(palavra_chave)
+    if "AVISO" in tipo_mensagem.upper():
+        aviso_fenomenos_desc = []
+        # Exemplo: TS SFC WSPD 15KT MAX 25 FCST NC=
         
-        if aviso_fenomenos:
-            alertas_encontrados.append(f"AVISO: {', '.join(aviso_fenomenos)}")
-        else:
-            alertas_encontrados.append("AVISO DE AERÓDROMO (GENÉRICO)")
+        # Detectar TS (Trovoada)
+        if "TS" in mensagem_upper:
+            aviso_fenomenos_desc.append("Trovoada")
+
+        # Detectar Vento de Superfície e Rajada (SFC WSPD 15KT MAX 25)
+        wind_warning_match = re.search(r'SFC WSPD (\d+KT)(?: MAX (\d+))?', mensagem_upper)
+        if wind_warning_match:
+            min_wind = wind_warning_match.group(1)
+            max_wind = wind_warning_match.group(2)
+            if max_wind:
+                aviso_fenomenos_desc.append(f"Vento de Superfície entre {min_wind} e {max_wind}KT")
+            else:
+                aviso_fenomenos_desc.append(f"Vento de Superfície de {min_wind}")
+
+        # Outros termos específicos de Avisos, se houver
+        for palavra_chave in ["GRANIZO", "CINZAS VULCÂNICAS", "NEVOEIRO", "FUMAÇA", 
+                              "VISIBILIDADE REDUZIDA", "CHUVA FORTE", "TESOURA DE VENTO"]:
+            if palavra_chave in mensagem_upper: # Verifica se a descrição já existe no aviso
+                aviso_fenomenos_desc.append(palavra_chave)
+        
+        # Mapear códigos diretos que podem aparecer em avisos
+        for codigo_icao, descricao in CODIGOS_METAR_TAF_MAP.items():
+            if codigo_icao in mensagem_upper and codigo_icao not in ["TS", "FG", "RA", "OVC", "BKN", "CB"]: # Evitar duplicidade ou casos já tratados
+                if descricao not in aviso_fenomenos_desc: # Garante que não adiciona descrições repetidas
+                    aviso_fenomenos_desc.append(descricao)
 
 
-    return list(set(alertas_encontrados))
+        if aviso_fenomenos_desc:
+            alertas_encontrados.append(", ".join(list(set(aviso_fenomenos_desc)))) # Remove duplicatas antes de juntar
+        else: 
+            alertas_encontrados.append("Conteúdo não mapeado") # Caso o aviso exista mas não detecte nada específico
+
+
+    return list(set(alertas_encontrados)) # Retorna a lista de alertas únicos
+
+
+# Função para extrair dados para o hash de Aviso de Aeródromo
+def extrair_id_aviso(mensagem_texto, aerodromo_monitorado):
+    """
+    Extrai o ID único de um Aviso de Aeródromo para persistência.
+    Formato esperado: SBGL SBSJ/SBTA AD WRNG 1 VALID 222240/230210 ...
+    Retorna uma string única (aeródromo_alvo-tipo_aviso-numero_aviso-validade) ou None.
+    """
+    mensagem_upper = mensagem_texto.upper()
+    
+    # Regex para pegar: tipo de aviso (AD WRNG), número e validade
+    # Usamos re.search para encontrar a primeira ocorrência
+    match = re.search(r'(AD WRNG\s*(\d+)\s*VALID\s*(\d{6}/\d{6}))', mensagem_upper)
+    
+    if match:
+        # A parte capturada da regex já inclui "AD WRNG 1 VALID 222240/230210"
+        chave_aviso_completa = match.group(1)
+        
+        # Combina aeródromo que estamos monitorando e a chave do aviso para um ID único
+        # Isso garante que se o mesmo aviso for feito para outro aeródromo, será um ID diferente
+        unique_id = f"{aerodromo_monitorado}-{chave_aviso_completa}"
+        return unique_id
+    return None
+
 
 # --- Lógica Principal do Agente ---
 def main():
     print(f"[{datetime.datetime.now()}] Iniciando o agente de alerta meteorológico da REDEMET...")
 
+    # Endpoints para verificar, incluindo SPECI (que será tratado como METAR pela API real)
     endpoints_para_verificar = {
-        "METAR": "METAR",
+        "METAR": "METAR", # Este endpoint irá retornar METAR ou SPECI
         "TAF": "TAF",
         "AVISO": "AVISO"
     }
 
-    # Carrega os hashes de mensagens já alertadas do Gist
     alertas_enviados_historico = ler_alertas_enviados_do_gist()
-    # Este set temporário irá armazenar os novos hashes de alertas desta execução
     novos_alertas_nesta_execucao = set()
 
     for aerodromo in AERODROMOS_INTERESSE: 
-        for tipo, endpoint_chave in endpoints_para_verificar.items():
-            print(f"Verificando {tipo} para aeródromo {aerodromo}...")
+        for tipo_solicitado_api, endpoint_chave in endpoints_para_verificar.items():
+            print(f"Verificando {tipo_solicitado_api} para aeródromo {aerodromo}...")
             
             dados_brutos_api = obter_mensagens_redemet(endpoint_chave, aerodromo)
 
             if dados_brutos_api:
-                mensagens_texto = processar_mensagens_redemet(tipo, dados_brutos_api)
+                mensagens_processadas = processar_mensagens_redemet(tipo_solicitado_api, dados_brutos_api)
 
-                if mensagens_texto:
-                    for mensagem_individual in mensagens_texto:
-                        # Hash da mensagem para identificação única
-                        hash_mensagem = hash(mensagem_individual)
+                if mensagens_processadas:
+                    for item_mensagem in mensagens_processadas:
+                        mensagem_tipo_real = item_mensagem["tipo"] # Pode ser METAR ou SPECI (se foi solicitado METAR)
+                        mensagem_texto = item_mensagem["texto"]
+
+                        hash_para_persistir = None
+                        # --- Lógica de Hash Inteligente para persistência ---
+                        if "AVISO" in mensagem_tipo_real.upper():
+                            unique_aviso_id = extrair_id_aviso(mensagem_texto, aerodromo)
+                            if unique_aviso_id:
+                                hash_para_persistir = hash(unique_aviso_id)
+                                print(f"  Aviso ID para persistência: {unique_aviso_id}")
+                            else:
+                                hash_para_persistir = hash(mensagem_texto)
+                                print(f"  Aviso sem ID detectável, usando hash da mensagem completa.")
+                        elif "METAR" in mensagem_tipo_real.upper() or "SPECI" in mensagem_tipo_real.upper() or "TAF" in mensagem_tipo_real.upper():
+                            # Para METAR/SPECI/TAF, o hash é da mensagem completa.
+                            # Isso significa que cada nova emissão (com nova hora) gerará um novo alerta se houver tempo severo.
+                            hash_para_persistir = hash(mensagem_texto)
+
+
+                        if hash_para_persistir is None:
+                            print(f"  Erro: Não foi possível gerar hash para persistência da mensagem {mensagem_tipo_real}: {mensagem_texto[:50]}...")
+                            continue # Pula esta mensagem se não conseguiu gerar o hash
 
                         # Verifica se o alerta já foi enviado anteriormente (usando o histórico do Gist)
-                        if hash_mensagem in alertas_enviados_historico:
-                            print(f"  Mensagem {tipo} para {aerodromo} já alertada anteriormente: {mensagem_individual[:50]}...")
-                            continue # Pula para a próxima mensagem se já foi alertada
+                        if hash_para_persistir in alertas_enviados_historico:
+                            print(f"  Mensagem {mensagem_tipo_real} para {aerodromo} já alertada anteriormente: {mensagem_texto[:50]}...")
+                            continue 
 
-                        alertas = analisar_mensagem_meteorologica(mensagem_individual)
+                        alertas = analisar_mensagem_meteorologica(mensagem_texto, mensagem_tipo_real)
 
                         if alertas:
-                            alerta_final = f"🚨 *NOVO ALERTA MET SBTA!* 🚨\n\n"
-                            alerta_final += f"**Aeródromo:** {aerodromo.upper()} - **Tipo:** {tipo}\n"
-                            alerta_final += f"**Condições Encontradas:** {', '.join(alertas)}\n\n"
-                            alerta_final += f"**Mensagem Original:**\n```\n{mensagem_individual}\n```\n"
+                            # --- Formatação da Mensagem de Alerta Aprimorada ---
+                            condicoes_texto_label = "Condições Previstas" 
+                            if "METAR" in mensagem_tipo_real or "SPECI" in mensagem_tipo_real:
+                                condicoes_texto_label = "Condições Reportada"
+                            
+                            alerta_final = f"🚨 *NOVO ALERTAMET {aerodromo.upper()}!* 🚨\n\n"
+                            alerta_final += f"**Aeródromo:** {aerodromo.upper()} - **Tipo:** {mensagem_tipo_real.upper()}\n"
+                            alerta_final += f"**{condicoes_texto_label}:** {', '.join(alertas)}\n\n"
+                            alerta_final += f"**Mensagem Original:**\n```\n{mensagem_texto}\n```\n\n"
                             alerta_final += f"_(Hora do Agente: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC)_"
                             
                             print("\n" + alerta_final + "\n")
                             enviar_mensagem_telegram(alerta_final)
                             
-                            # Adiciona o hash da mensagem ao set de novos alertas para gravação no Gist
-                            novos_alertas_nesta_execucao.add(hash_mensagem)
+                            novos_alertas_nesta_execucao.add(hash_para_persistir)
                             
-                            # Pequena pausa para evitar rate limit do Telegram se houver muitos alertas
                             time.sleep(1) 
                         else:
-                            print(f"  Mensagem {tipo} para {aerodromo} sem alertas severos: {mensagem_individual[:50]}...")
+                            print(f"  Mensagem {mensagem_tipo_real} para {aerodromo} sem alertas severos: {mensagem_texto[:50]}...")
                 else:
-                    print(f"Nenhuma mensagem de texto extraída para {tipo} em {aerodromo}. Verifique 'processar_mensagens_redemet'.")
+                    print(f"Nenhuma mensagem de texto extraída para {tipo_solicitado_api} em {aerodromo}. Verifique 'processar_mensagens_redemet'.")
             else:
-                print(f"Não foi possível obter dados para {tipo} em {aerodromo}.")
+                print(f"Não foi possível obter dados para {tipo_solicitado_api} em {aerodromo}.")
 
-    # Atualiza o Gist com todos os novos alertas enviados nesta execução
     if novos_alertas_nesta_execucao:
         atualizar_alertas_enviados_no_gist(novos_alertas_nesta_execucao)
     else:
