@@ -163,7 +163,7 @@ def obter_mensagens_redemet_simulada(endpoint, aerodromo=None):
                 if aerodromo.upper() in msg.upper():
                     mensagens_para_aerodromo.append({"mensagem": msg})
         elif "TAF" in endpoint.upper():
-            for msg in tafs_simulados:
+            for msg in tafs_simulamos:
                 if aerodromo.upper() in msg.upper():
                     mensagens_para_aerodromo.append({"mensagem": msg})
         elif "METAR" in endpoint.upper():
@@ -321,9 +321,9 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
                 vis_value = int(vis_match_aviso.group(1))
                 vis_unit = vis_match_aviso.group(2)
                 if (vis_unit == 'M' and vis_value < 1000) or (vis_unit == 'K' and vis_value < 1): # <1km
-                    aviso_fenomenos_desc.append(f"Nevoeiro (VISIBILIDADE < {vis_value}{vis_unit})")
+                    alertas_encontrados.append(f"Nevoeiro (VISIBILIDADE < {vis_value}{vis_unit})")
             else:
-                aviso_fenomenos_desc.append("Nevoeiro")
+                alertas_encontrados.append("Nevoeiro")
         
         if "CHUVA FORTE" in mensagem_upper or "+RA" in mensagem_upper:
             aviso_fenomenos_desc.append("Chuva Forte")
@@ -448,7 +448,5 @@ if __name__ == "__main__":
     else:
         print(f"Iniciando monitoramento. Verificando a cada {INTERVALO_VERIFICACAO} segundos.")
         while True:
-            # Remova a linha de teste temporária se ainda estiver presente
-            # enviar_mensagem_telegram(TELEGRAM_CHAT_ID, f"Teste de Alerta do Agente SBTA - {agora_utc.strftime('%H:%M:%S UTC')}")
             verificar_e_alertar()
             time.sleep(INTERVALO_VERIFICACAO)
