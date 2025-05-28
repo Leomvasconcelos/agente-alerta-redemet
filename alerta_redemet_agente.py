@@ -163,7 +163,8 @@ def obter_mensagens_redemet_simulada(endpoint, aerodromo=None):
                 if aerodromo.upper() in msg.upper():
                     mensagens_para_aerodromo.append({"mensagem": msg})
         elif "TAF" in endpoint.upper():
-            for msg in tafs_simulamos:
+            # CORREÇÃO AQUI: Estava 'tafs_simulamos', corrigido para 'tafs_simulados'
+            for msg in tafs_simulados: 
                 if aerodromo.upper() in msg.upper():
                     mensagens_para_aerodromo.append({"mensagem": msg})
         elif "METAR" in endpoint.upper():
