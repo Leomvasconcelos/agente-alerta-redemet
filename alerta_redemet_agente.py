@@ -90,7 +90,7 @@ def obter_mensagens_redemet_real(endpoint_tipo, aerodromo):
     """
     url = f"{REDEMET_API_BASE_URL}{endpoint_tipo}/{aerodromo}"
     headers = {
-        "API-Key": REDEMET_API_KEY
+        "API-Key": REDEMET_API_KEY # Esta linha é crucial e DEVE ESTAR AQUI!
     }
 
     print(f"Buscando dados da REDEMET: {url}")
@@ -102,15 +102,18 @@ def obter_mensagens_redemet_real(endpoint_tipo, aerodromo):
         mensagens_filtradas = []
         if data and 'data' in data and data['data']:
             if endpoint_tipo == "metar":
+                # Pega a última mensagem de METAR/SPECI
                 if isinstance(data['data'], list) and data['data'] and 'mens' in data['data'][-1]:
                     mensagens_filtradas.append({"mensagem": data['data'][-1]['mens']})
             elif endpoint_tipo == "taf":
+                # Pega o último TAF não cancelado
                 if isinstance(data['data'], list) and data['data']:
                     for msg_data in reversed(data['data']):
                         if 'mens' in msg_data and "CNL" not in msg_data['mens'].upper():
                             mensagens_filtradas.append({"mensagem": msg_data['mens']})
                             break
             elif endpoint_tipo == "aviso":
+                # Pega todos os avisos ativos
                 if isinstance(data['data'], list) and data['data']:
                     for msg_data in data['data']:
                         if 'mens' in msg_data:
@@ -119,7 +122,7 @@ def obter_mensagens_redemet_real(endpoint_tipo, aerodromo):
         return {"data": mensagens_filtradas}
 
     except requests.exceptions.HTTPError as http_err:
-        print(f"Erro HTTP ao buscar {endpoint_tipo} para {aerodromo}: {http_err} - Resposta: {response.text}")
+        print(f"Erro HTTP ao buscar {endpoint_tipo} para {aerodromo}: {http_err} - Resposta: {response.text if 'response' in locals() else 'N/A'}")
     except requests.exceptions.ConnectionError as conn_err:
         print(f"Erro de Conexão ao buscar {endpoint_tipo} para {aerodromo}: {conn_err}")
     except requests.exceptions.Timeout as timeout_err:
@@ -149,6 +152,7 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
             if descricao not in alertas_encontrados:
                 alertas_encontrados.append(descricao)
         # Para outros códigos, usamos bordas de palavra para evitar falsos positivos
+        # Utiliza raw string (r'') para regex
         elif re.search(r'\b' + re.escape(codigo_icao) + r'\b', mensagem_upper):
             if codigo_icao in ["OVC", "BKN", "SCT", "FEW"]:
                 # Captura a camada de nuvem e a altura logo após o código
@@ -224,7 +228,8 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
     # Lógica para TAF (previsão) - procurar por fenômenos e condições em TEMPO/BECMG/PROB30/40
     if "TAF" in tipo_mensagem.upper():
         for codigo_icao, descricao in CODIGOS_METAR_TAF_MAP.items():
-            # A regex agora captura o prefixo (PROBxx, TEMPO, BECMG) e o fenômeno
+            # A regex agora captura o prefixo (PROBxx, TEMPO, BECMG) e o fenômeno.
+            # CORREÇÃO: Utiliza raw string (r'') para evitar SyntaxWarning.
             match_taf_phenom = re.search(r'(PROB\d{2}|TEMPO|BECMG)\s+(?:.*?)(?<!\d)(\d{4}\s)?' + re.escape(codigo_icao) + r'\b', mensagem_upper)
             if match_taf_phenom:
                 prefix = match_taf_phenom.group(1)
@@ -277,7 +282,7 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
                 alertas_encontrados.append("PREVISÃO: Cinzas Vulcânicas (VA)")
 
         # Lógica de vento em TAF para TEMPO/BECMG/PROB
-        # A regex foi ajustada para ser mais robusta, pegando os grupos de mudança de forma mais precisa
+        # A regex foi ajustada para ser mais robusta e usa raw string (r'')
         wind_groups_in_taf = re.findall(r'(PROB\d{2}|TEMPO|BECMG)?(?:.*?)(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
         for group in wind_groups_in_taf:
             prefix = group[0] if group[0] else "Previsão" # Se não houver prefixo (e.g., vento principal do TAF)
@@ -316,6 +321,7 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
 
         # Detectar Nevoeiro/Visibilidade Reduzida no aviso
         if "FG" in mensagem_upper or "NEVOEIRO" in mensagem_upper:
+            # CORREÇÃO: Utiliza raw string (r'') para evitar SyntaxWarning.
             vis_match_aviso = re.search(r'VIS < (\d+)([MK])', mensagem_upper)
             if vis_match_aviso:
                 vis_value = int(vis_match_aviso.group(1))
@@ -350,6 +356,7 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
 
         # Vento de Superfície e Rajadas no Aviso (Ajuste crítico aqui!)
         # Ex: "SFC WSPD 15KT MAX 25 FCST"
+        # CORREÇÃO: Utiliza raw string (r'') para evitar SyntaxWarning.
         wind_warning_match = re.search(r'SFC WSPD (\d+)(?:KT)?(?: MAX (\d+))?', mensagem_upper)
         if wind_warning_match:
             min_wind = int(wind_warning_match.group(1))
@@ -375,7 +382,7 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
     if not alertas_encontrados:
         alertas_encontrados.append("Conteúdo não mapeado")
 
-    return list(set(alertas_encontrados))
+    return list(set(alertas_encontrados)) # Usar set para remover duplicatas internas
 
 def verificar_e_alertar():
     """Verifica as condições meteorológicas e envia alertas."""
