@@ -1,36 +1,32 @@
-name: Monitorar Alertas REDEMET
+name: Agente Alerta REDEMET
 
 on:
+  workflow_dispatch: # Permite execução manual
   schedule:
-    # Executa a cada 5 minutos
-    # O cron usa fuso horário UTC. Ajuste conforme necessário para o seu fuso.
-    # Ex: '0 12 * * *' para meio-dia UTC
-    - cron: '*/5 * * * *' 
-  workflow_dispatch: # Permite executar manualmente o workflow pela UI do GitHub
+    - cron: '*/5 * * * *' # Executa a cada 5 minutos
 
 jobs:
-  rodar-alerta:
+  run-alert-agent:
     runs-on: ubuntu-latest
 
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }} # Adicione esta linha!
+
     steps:
-    - name: Checar o código do repositório
-      uses: actions/checkout@v4
+      - name: Checkout código
+        uses: actions/checkout@v4
 
-    - name: Configurar Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.x' # Use '3.9', '3.10', etc., se precisar de uma versão específica
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x' 
 
-    - name: Instalar dependências
-      # ESTA É A CORREÇÃO: Garante que o pip leia o requirements.txt
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Executar o script de alerta
-      # Lembre-se: TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID devem ser configurados como Secrets no GitHub.
-      # Vá para Settings > Secrets and variables > Actions > New repository secret.
-      run: python alerta_redemet_agente.py
-      env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - name: Executar o script de alerta
+        run: python alerta_redemet_agente.py
