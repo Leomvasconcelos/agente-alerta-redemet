@@ -104,11 +104,10 @@ def obter_mensagens_redemet(endpoint, aerodromo):
         response.raise_for_status() # Levanta um erro para códigos de status HTTP 4xx/5xx
         data = response.json()
         
-        # O problema reportado sugere que data['data'] pode conter strings diretamente.
-        # Ajustamos o tratamento em verificar_e_alertar para lidar com isso.
+        # CORREÇÃO CRÍTICA AQUI: Retornar APENAS o conteúdo da chave 'data'
         if data and 'data' in data and data['data']:
             print(f"Dados da REDEMET obtidos com sucesso para {aerodromo.upper()}.")
-            return data
+            return {"data": data['data']} # Retorna apenas a lista de mensagens
         else:
             print(f"Nenhum dado encontrado para {aerodromo.upper()} no endpoint {endpoint.upper()}. Resposta: {data}")
             return {"data": []} # Retorna estrutura vazia consistente
@@ -337,15 +336,17 @@ def verificar_e_alertar():
         # --- Avisos de Aeródromo ---
         avisos_data = obter_mensagens_redemet("aviso", aerodromo) 
         if avisos_data and avisos_data['data']:
-            for item in avisos_data['data']: # Renomeado 'aviso' para 'item' para clareza
+            for item in avisos_data['data']: 
                 mensagem_aviso = ""
-                if isinstance(item, dict):
-                    mensagem_aviso = item.get('mensagem', '')
+                # Prioriza dicionários com a chave 'mensagem', senão tenta como string direta
+                if isinstance(item, dict) and 'mensagem' in item:
+                    mensagem_aviso = item['mensagem'] # Acessa diretamente, pois a chave 'mensagem' deve existir
                 elif isinstance(item, str):
                     mensagem_aviso = item
                 
                 if not mensagem_aviso:
-                    print(f"Mensagem de aviso vazia ou inválida para {aerodromo}. Conteúdo: {item}")
+                    # Melhorar a mensagem de log para mostrar o 'item' completo se for complexo
+                    print(f"Mensagem de aviso vazia ou inválida para {aerodromo}. Item: {item}")
                     continue
 
                 aviso_hash = calcular_hash_mensagem(mensagem_aviso)
@@ -371,15 +372,15 @@ def verificar_e_alertar():
         # --- TAFs ---
         tafs_data = obter_mensagens_redemet("taf", aerodromo) 
         if tafs_data and tafs_data['data']:
-            for item in tafs_data['data']: # Renomeado 'taf' para 'item'
+            for item in tafs_data['data']: 
                 mensagem_taf = ""
-                if isinstance(item, dict):
-                    mensagem_taf = item.get('mensagem', '')
+                if isinstance(item, dict) and 'mensagem' in item:
+                    mensagem_taf = item['mensagem']
                 elif isinstance(item, str):
                     mensagem_taf = item
                 
                 if not mensagem_taf:
-                    print(f"Mensagem TAF vazia ou inválida para {aerodromo}. Conteúdo: {item}")
+                    print(f"Mensagem TAF vazia ou inválida para {aerodromo}. Item: {item}")
                     continue
 
                 taf_hash = calcular_hash_mensagem(mensagem_taf)
@@ -405,15 +406,15 @@ def verificar_e_alertar():
         # --- METARs e SPECI ---
         metars_data = obter_mensagens_redemet("metar", aerodromo) 
         if metars_data and metars_data['data']:
-            for item in metars_data['data']: # Renomeado 'metar_speci' para 'item'
+            for item in metars_data['data']:
                 mensagem_metar_speci = ""
-                if isinstance(item, dict):
-                    mensagem_metar_speci = item.get('mensagem', '')
+                if isinstance(item, dict) and 'mensagem' in item:
+                    mensagem_metar_speci = item['mensagem']
                 elif isinstance(item, str):
                     mensagem_metar_speci = item
                 
                 if not mensagem_metar_speci:
-                    print(f"Mensagem METAR/SPECI vazia ou inválida para {aerodromo}. Conteúdo: {item}")
+                    print(f"Mensagem METAR/SPECI vazia ou inválida para {aerodromo}. Item: {item}")
                     continue
 
                 metar_speci_hash = calcular_hash_mensagem(mensagem_metar_speci)
