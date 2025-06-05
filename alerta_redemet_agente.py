@@ -104,6 +104,8 @@ def obter_mensagens_redemet(endpoint, aerodromo):
         response.raise_for_status() # Levanta um erro para códigos de status HTTP 4xx/5xx
         data = response.json()
         
+        # O problema reportado sugere que data['data'] pode conter strings diretamente.
+        # Ajustamos o tratamento em verificar_e_alertar para lidar com isso.
         if data and 'data' in data and data['data']:
             print(f"Dados da REDEMET obtidos com sucesso para {aerodromo.upper()}.")
             return data
@@ -333,13 +335,17 @@ def verificar_e_alertar():
 
     for aerodromo in AERODROMOS_INTERESSE:
         # --- Avisos de Aeródromo ---
-        # Removida a simulação e usando a função real agora
         avisos_data = obter_mensagens_redemet("aviso", aerodromo) 
         if avisos_data and avisos_data['data']:
-            for aviso in avisos_data['data']:
-                mensagem_aviso = aviso.get('mensagem', '') # Use .get() para evitar KeyError
+            for item in avisos_data['data']: # Renomeado 'aviso' para 'item' para clareza
+                mensagem_aviso = ""
+                if isinstance(item, dict):
+                    mensagem_aviso = item.get('mensagem', '')
+                elif isinstance(item, str):
+                    mensagem_aviso = item
+                
                 if not mensagem_aviso:
-                    print(f"Mensagem de aviso vazia para {aerodromo}.")
+                    print(f"Mensagem de aviso vazia ou inválida para {aerodromo}. Conteúdo: {item}")
                     continue
 
                 aviso_hash = calcular_hash_mensagem(mensagem_aviso)
@@ -363,13 +369,17 @@ def verificar_e_alertar():
                     print(f"Aviso de Aeródromo para {aerodromo} já alertado (cache): {mensagem_aviso}")
 
         # --- TAFs ---
-        # Removida a simulação e usando a função real agora
         tafs_data = obter_mensagens_redemet("taf", aerodromo) 
         if tafs_data and tafs_data['data']:
-            for taf in tafs_data['data']:
-                mensagem_taf = taf.get('mensagem', '')
+            for item in tafs_data['data']: # Renomeado 'taf' para 'item'
+                mensagem_taf = ""
+                if isinstance(item, dict):
+                    mensagem_taf = item.get('mensagem', '')
+                elif isinstance(item, str):
+                    mensagem_taf = item
+                
                 if not mensagem_taf:
-                    print(f"Mensagem TAF vazia para {aerodromo}.")
+                    print(f"Mensagem TAF vazia ou inválida para {aerodromo}. Conteúdo: {item}")
                     continue
 
                 taf_hash = calcular_hash_mensagem(mensagem_taf)
@@ -393,13 +403,17 @@ def verificar_e_alertar():
                     print(f"TAF para {aerodromo} já alertado (cache): {mensagem_taf}")
 
         # --- METARs e SPECI ---
-        # Removida a simulação e usando a função real agora
         metars_data = obter_mensagens_redemet("metar", aerodromo) 
         if metars_data and metars_data['data']:
-            for metar_speci in metars_data['data']:
-                mensagem_metar_speci = metar_speci.get('mensagem', '')
+            for item in metars_data['data']: # Renomeado 'metar_speci' para 'item'
+                mensagem_metar_speci = ""
+                if isinstance(item, dict):
+                    mensagem_metar_speci = item.get('mensagem', '')
+                elif isinstance(item, str):
+                    mensagem_metar_speci = item
+                
                 if not mensagem_metar_speci:
-                    print(f"Mensagem METAR/SPECI vazia para {aerodromo}.")
+                    print(f"Mensagem METAR/SPECI vazia ou inválida para {aerodromo}. Conteúdo: {item}")
                     continue
 
                 metar_speci_hash = calcular_hash_mensagem(mensagem_metar_speci)
