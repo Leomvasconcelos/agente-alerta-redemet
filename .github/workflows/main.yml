@@ -9,10 +9,10 @@ jobs:
   run-alert-agent:
     runs-on: ubuntu-latest
 
-    env:
+    env: # Esta seção é CRÍTICA!
       TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }} # Adicione esta linha!
+      REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }} # Esta linha é a mais importante!
 
     steps:
       - name: Checkout código
@@ -21,7 +21,7 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x' 
+          python-version: '3.x'
 
       - name: Instalar dependências
         run: |
