@@ -81,11 +81,10 @@ def obter_mensagens_redemet(endpoint, aerodromo):
                     print(f"Dados da REDEMET (estrutura aninhada) obtidos com sucesso para {aerodromo.upper()}. {len(lista_mensagens_aninhada)} mensagens.")
                     return {"data": lista_mensagens_aninhada}
                 else:
-                    # Log se a 'data' aninhada não for uma lista ou não existir, mas havia algo na 'data' principal (dict)
-                    conteudo_data_principal = str(data_principal)[:200] # Log truncado do dicionário 'data' principal
-                    if not lista_mensagens_aninhada and 'data' in data_principal and not data_principal['data']: # Se data:[] aninhado
+                    conteudo_data_principal = str(data_principal)[:200]
+                    if not lista_mensagens_aninhada and 'data' in data_principal and data_principal['data'] is not None and not data_principal['data'] : # Se data:[] aninhado
                          print(f"Dados da REDEMET (estrutura aninhada) obtidos para {aerodromo.upper()}, mas a lista de mensagens está vazia. Detalhes da paginação: {conteudo_data_principal}")
-                         return {"data": []} # Lista de mensagens aninhada vazia
+                         return {"data": []}
                     print(f"Chave 'data' principal é um dicionário, mas a chave 'data' aninhada não é uma lista ou não foi encontrada como esperado. "
                           f"Aeroporto: {aerodromo.upper()}. Tipo da 'data' aninhada: {type(lista_mensagens_aninhada)}. Conteúdo da 'data' principal: {conteudo_data_principal}")
                     return {"data": []}
@@ -119,9 +118,6 @@ def obter_mensagens_redemet(endpoint, aerodromo):
         print(f"Erro geral ao acessar REDEMET API para {aerodromo.upper()} ({endpoint.upper()}): {req_err}")
     except json.JSONDecodeError as json_err:
         print(f"Erro ao decodificar JSON da REDEMET API para {aerodromo.upper()}: {json_err}")
-        # Para depurar a resposta bruta em caso de erro JSON, podemos tentar obter o response.text
-        # if 'response' in locals() and hasattr(response, 'text'):
-        # print(f"Response text (antes do JSONDecodeError): {response.text}")
     return {"data": []}
 
 
@@ -138,16 +134,14 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
                 if codigo_icao in ["OVC", "BKN"] and re.search(f"{codigo_icao}00[1-5]", mensagem_upper):
                     alertas_encontrados.append(f"{descricao} (TETO BAIXO < 600FT)")
                 elif codigo_icao == "FG":
-                    vis_match = re.search(r'\s(\d{4})\s', mensagem_upper) # Visibilidade como 4 dígitos (ex: 0800)
-                    # Tenta encontrar visibilidade fracionada também, comum em alguns METARs, ex: 1/4SM
-                    # Esta regex é um exemplo e pode precisar de ajustes para formatos específicos de visibilidade fracionada
+                    vis_match = re.search(r'\s(\d{4})\s', mensagem_upper)
                     vis_frac_match = re.search(r'\s(\d/\dSM)\s', mensagem_upper)
                     if vis_match and int(vis_match.group(1)) < 1000:
                         alertas_encontrados.append(f"{descricao} (VISIBILIDADE < 1000M)")
-                    elif vis_frac_match: # Se encontrar visibilidade fracionada, considerar como perigosa
+                    elif vis_frac_match:
                         alertas_encontrados.append(f"{descricao} (VISIBILIDADE RESTRITA: {vis_frac_match.group(1)})")
                     elif "FG" in mensagem_upper and not vis_match and not vis_frac_match:
-                        alertas_encontrados.append(descricao) # FG presente, mas visibilidade não parsada/crítica
+                        alertas_encontrados.append(descricao)
                 elif codigo_icao == "CB":
                     cb_match = re.search(r'(FEW|SCT|BKN|OVC)(\d{3})CB', mensagem_upper)
                     if cb_match:
@@ -155,7 +149,7 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
                         alertas_encontrados.append(f"{descricao} a {cloud_height}FT")
                     else:
                         alertas_encontrados.append(descricao)
-                elif codigo_icao != "CAVOK": # Não alertar para CAVOK como fenômeno isolado
+                elif codigo_icao != "CAVOK":
                     alertas_encontrados.append(descricao)
 
         if re.search(r'\bVA\b', mensagem_upper) and "VALID" not in mensagem_upper:
@@ -168,23 +162,19 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
             wind_desc = []
             if sustained_wind >= 20:
                 wind_desc.append(f"Vento Médio de {sustained_wind}KT")
-            if gust_wind_str and int(gust_wind_str) >= 20: # Considerar rajadas a partir de 20KT também como alerta
+            if gust_wind_str and int(gust_wind_str) >= 20:
                 wind_desc.append(f"Rajadas de {int(gust_wind_str)}KT")
             if wind_desc:
                 alertas_encontrados.append(" e ".join(wind_desc))
 
         if "TAF" in tipo_mensagem.upper():
-            # Analisa fenômenos e ventos dentro de blocos de tendência (TEMPO, BECMG, PROB)
             taf_sections = re.split(r'(PROB\d{2}\s(?:TEMPO)?|FM\d{6}|TEMPO\s(?:FM\d{6}\sTL\d{6}|FM\d{6}|TL\d{6})?|BECMG\s(?:FM\d{6}\sTL\d{6}|FM\d{6}|TL\d{6})?)', mensagem_upper)
-            
             current_prefix = "PREVISÃO (Principal)"
-            for i, section_content in enumerate(taf_sections):
-                if i % 2 == 1: # Se for um prefixo capturado
+            for i, section_content_full in enumerate(taf_sections):
+                section_content = section_content_full # Para evitar modificar o iterador diretamente se necessário
+                if i % 2 == 1: 
                     current_prefix = section_content.strip() if section_content else "Bloco de Tendência"
-                    continue # O conteúdo estará na próxima iteração
-
-                # current_prefix agora é o prefixo do bloco (ou "Principal")
-                # section_content é o texto desse bloco
+                    continue 
                 
                 for codigo_icao, descricao in CODIGOS_METAR_TAF_MAP.items():
                     if re.search(r'\b' + re.escape(codigo_icao) + r'\b', section_content):
@@ -217,7 +207,6 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
                         prefix_str = f"{current_prefix.upper()}: " if current_prefix != "PREVISÃO (Principal)" else "PREVISÃO: "
                         alertas_encontrados.append(f"{prefix_str}{' e '.join(wind_desc_taf_section)}")
 
-
     elif "AD WRNG" in tipo_mensagem.upper() or "AVISO DE AERÓDROMO" in tipo_mensagem.upper():
         aviso_fenomenos_desc = []
         if "TS" in mensagem_upper or "TROVOADA" in mensagem_upper: aviso_fenomenos_desc.append("Trovoada")
@@ -234,21 +223,20 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
         if "GRANIZO" in mensagem_upper: aviso_fenomenos_desc.append("Granizo")
         
         if "FG" in mensagem_upper or "NEVOEIRO" in mensagem_upper:
-            vis_match_aviso = re.search(r'VIS\s*<\s*(\d+)\s*([MK]M?)', mensagem_upper) # VIS < 1000M ou VIS < 1K ou VIS < 1KM
+            vis_match_aviso = re.search(r'VIS\s*<\s*(\d+)\s*([MK]M?)', mensagem_upper)
             if vis_match_aviso:
                 vis_value = int(vis_match_aviso.group(1))
                 vis_unit = vis_match_aviso.group(2).upper()
                 vis_meters = vis_value
-                if 'K' in vis_unit: # Se for KM, converte para metros
+                if 'K' in vis_unit: 
                     vis_meters = vis_value * 1000
-                
                 if vis_meters < 1000:
-                    alertas_encontrados.append(f"Nevoeiro (VISIBILIDADE < {vis_value}{vis_unit.replace('M','') if vis_unit != 'M' else 'M'})") # Ex: < 1000M ou < 1K
-            elif "FG" in mensagem_upper or "NEVOEIRO" in mensagem_upper: # Se apenas "FG" ou "NEVOEIRO"
+                    alertas_encontrados.append(f"Nevoeiro (VISIBILIDADE < {vis_value}{vis_unit.replace('M','') if vis_unit != 'M' else 'M'})")
+            elif "FG" in mensagem_upper or "NEVOEIRO" in mensagem_upper:
                  aviso_fenomenos_desc.append("Nevoeiro")
         
         if "CHUVA FORTE" in mensagem_upper or re.search(r'\+RA\b', mensagem_upper): aviso_fenomenos_desc.append("Chuva Forte")
-        if "VISIBILIDADE REDUZIDA" in mensagem_upper: aviso_fenomenos_desc.append("Visibilidade Reduzida") # Termo genérico
+        if "VISIBILIDADE REDUZIDA" in mensagem_upper: aviso_fenomenos_desc.append("Visibilidade Reduzida")
         if "WIND SHEAR" in mensagem_upper or re.search(r'\bWS\b', mensagem_upper): aviso_fenomenos_desc.append("Tesoura de Vento (Wind Shear)")
         if re.search(r'\bVA\b', mensagem_upper): aviso_fenomenos_desc.append("Cinzas Vulcânicas (VA)")
         if "FUMAÇA" in mensagem_upper or re.search(r'\bFU\b', mensagem_upper): aviso_fenomenos_desc.append("Fumaça")
@@ -290,23 +278,29 @@ def verificar_e_alertar():
                 print(f"Encontradas {len(lista_mensagens)} mensagens para {tipo_base_mensagem} de {aerodromo}.")
                 for item_msg in lista_mensagens:
                     mensagem_real = ""
-                    # A API da REDEMET retorna as mensagens dentro de um objeto com chave "mensagem"
-                    # ou, para alguns endpoints/situações, pode ser que o item_msg já seja a string.
-                    # O mais comum é ser um dicionário com 'id_localidade', 'validade_inicial', 'mensagem'.
-                    if isinstance(item_msg, dict) and 'mensagem' in item_msg:
-                        mensagem_real = item_msg['mensagem']
-                    elif isinstance(item_msg, str):
-                        mensagem_real = item_msg # Fallback menos comum
+                    if isinstance(item_msg, dict):
+                        if 'mens' in item_msg:  # Chave usada para METAR/TAF
+                            mensagem_real = item_msg['mens']
+                        elif 'mensagem' in item_msg:  # Chave pode ser usada para Avisos de Aeródromo ou outros
+                            mensagem_real = item_msg['mensagem']
+                        # Considerar 'mensagem_original' para avisos se necessário no futuro:
+                        # elif endpoint == "aviso" and 'mensagem_original' in item_msg:
+                        #     mensagem_real = item_msg['mensagem_original']
+                        else:
+                            print(f"Nenhuma chave de mensagem conhecida ('mens', 'mensagem') encontrada no item para {aerodromo} ({endpoint}). Item: {str(item_msg)[:150]}")
+                            continue 
+                    elif isinstance(item_msg, str): 
+                        mensagem_real = item_msg
                     else:
-                        print(f"Item de mensagem em formato inesperado para {aerodromo} ({endpoint}): {str(item_msg)[:100]}")
-                        continue
+                        print(f"Item de mensagem em formato totalmente inesperado para {aerodromo} ({endpoint}): {str(item_msg)[:100]}")
+                        continue 
                     
                     if not mensagem_real.strip():
                         print(f"Mensagem {tipo_base_mensagem} vazia ou inválida para {aerodromo}. Item: {str(item_msg)[:100]}")
                         continue
 
                     tipo_atual_mensagem = tipo_base_mensagem
-                    if endpoint == "metar": # Se for do endpoint metar, pode ser METAR ou SPECI
+                    if endpoint == "metar": 
                         tipo_atual_mensagem = "SPECI" if mensagem_real.upper().startswith("SPECI") else "METAR"
 
                     msg_hash = calcular_hash_mensagem(mensagem_real)
@@ -314,7 +308,7 @@ def verificar_e_alertar():
                     if msg_hash not in alertas_enviados_cache:
                         condicoes_perigosas = analisar_mensagem_meteorologica(mensagem_real, tipo_atual_mensagem)
                         if condicoes_perigosas:
-                            emoji_alerta = "🚨" # Aviso
+                            emoji_alerta = "🚨" 
                             if tipo_atual_mensagem == "TAF": emoji_alerta = "⚠️"
                             elif tipo_atual_mensagem in ["METAR", "SPECI"]: emoji_alerta = "⚡️"
                             
@@ -338,8 +332,6 @@ def verificar_e_alertar():
                 print(f"Falha ao obter ou processar dados para {endpoint.upper()} de {aerodromo}. Resposta da API não continha lista de dados válida.")
         print(f"--- Fim do processamento para Aeródromo: {aerodromo} ---")
 
-
-    # Limpeza do cache de alertas mais antigos que 24 horas
     chaves_para_remover = [
         msg_hash for msg_hash, timestamp_envio in alertas_enviados_cache.items()
         if agora_utc - timestamp_envio > timedelta(hours=24)
@@ -354,7 +346,6 @@ def verificar_e_alertar():
 
 # --- Execução Principal ---
 if __name__ == "__main__":
-    # Verifica se as variáveis de ambiente essenciais estão configuradas
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("Erro Crítico: Variáveis de ambiente TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID não configuradas.")
         print("Por favor, defina-as como secrets no GitHub.")
@@ -362,7 +353,6 @@ if __name__ == "__main__":
         print("Erro Crítico: REDEMET_API_KEY não configurada.")
         print("Certifique-se de que a secret 'REDEMET_API_KEY' está definida no GitHub.")
     else:
-        # Execução única para GitHub Actions (ou pode ser adaptado para loop local)
         print("Executando verificação de alertas REDEMET (configurado para execução única).")
         verificar_e_alertar()
         timestamp_fim = datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
