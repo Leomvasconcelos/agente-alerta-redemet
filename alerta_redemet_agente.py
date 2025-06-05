@@ -88,7 +88,6 @@ def enviar_mensagem_telegram(chat_id, texto):
 def obter_mensagens_redemet(endpoint, aerodromo):
     """
     Obtém dados meteorológicos da API real da REDEMET.
-    Retorna apenas a lista de mensagens contida na chave 'data'.
     """
     url = f"https://api-redemet.decea.mil.br/mensagens/{endpoint}/{aerodromo}"
     headers = {
@@ -105,14 +104,13 @@ def obter_mensagens_redemet(endpoint, aerodromo):
         response.raise_for_status() # Levanta um erro para códigos de status HTTP 4xx/5xx
         data = response.json()
         
-        # *** CORREÇÃO AQUI ***
-        # Retorna APENAS a lista de mensagens da chave 'data'.
-        # Se 'data' não existir ou for vazia, retorna uma lista vazia.
-        if data and 'data' in data and isinstance(data['data'], list):
+        # O problema reportado sugere que data['data'] pode conter strings diretamente.
+        # Ajustamos o tratamento em verificar_e_alertar para lidar com isso.
+        if data and 'data' in data and data['data']:
             print(f"Dados da REDEMET obtidos com sucesso para {aerodromo.upper()}.")
-            return {"data": data['data']} 
+            return data
         else:
-            print(f"Nenhum dado válido encontrado para {aerodromo.upper()} no endpoint {endpoint.upper()}. Resposta: {data}")
+            print(f"Nenhum dado encontrado para {aerodromo.upper()} no endpoint {endpoint.upper()}. Resposta: {data}")
             return {"data": []} # Retorna estrutura vazia consistente
     except requests.exceptions.HTTPError as http_err:
         print(f"Erro HTTP ao acessar REDEMET API para {aerodromo.upper()} ({endpoint.upper()}): {http_err}")
@@ -132,7 +130,7 @@ def obter_mensagens_redemet(endpoint, aerodromo):
         return {"data": []}
     except json.JSONDecodeError as json_err:
         print(f"Erro ao decodificar JSON da REDEMET API para {aerodromo.upper()}: {json_err}")
-        # print(f"Response text: {response.text}") # Descomente para depurar a resposta bruta se houver erro JSON
+        print(f"Response text: {response.text}")
         return {"data": []}
 
 
@@ -339,17 +337,15 @@ def verificar_e_alertar():
         # --- Avisos de Aeródromo ---
         avisos_data = obter_mensagens_redemet("aviso", aerodromo) 
         if avisos_data and avisos_data['data']:
-            for item in avisos_data['data']: 
+            for item in avisos_data['data']: # Renomeado 'aviso' para 'item' para clareza
                 mensagem_aviso = ""
-                # Prioriza dicionários com a chave 'mensagem', senão tenta como string direta
-                if isinstance(item, dict) and 'mensagem' in item:
-                    mensagem_aviso = item['mensagem'] 
-                elif isinstance(item, str): # Fallback para o caso de a API retornar a mensagem diretamente como string
+                if isinstance(item, dict):
+                    mensagem_aviso = item.get('mensagem', '')
+                elif isinstance(item, str):
                     mensagem_aviso = item
                 
                 if not mensagem_aviso:
-                    # Melhorar a mensagem de log para mostrar o 'item' completo se for complexo
-                    print(f"Mensagem de aviso vazia ou inválida para {aerodromo}. Item: {item}")
+                    print(f"Mensagem de aviso vazia ou inválida para {aerodromo}. Conteúdo: {item}")
                     continue
 
                 aviso_hash = calcular_hash_mensagem(mensagem_aviso)
@@ -375,15 +371,15 @@ def verificar_e_alertar():
         # --- TAFs ---
         tafs_data = obter_mensagens_redemet("taf", aerodromo) 
         if tafs_data and tafs_data['data']:
-            for item in tafs_data['data']: 
+            for item in tafs_data['data']: # Renomeado 'taf' para 'item'
                 mensagem_taf = ""
-                if isinstance(item, dict) and 'mensagem' in item:
-                    mensagem_taf = item['mensagem']
+                if isinstance(item, dict):
+                    mensagem_taf = item.get('mensagem', '')
                 elif isinstance(item, str):
                     mensagem_taf = item
                 
                 if not mensagem_taf:
-                    print(f"Mensagem TAF vazia ou inválida para {aerodromo}. Item: {item}")
+                    print(f"Mensagem TAF vazia ou inválida para {aerodromo}. Conteúdo: {item}")
                     continue
 
                 taf_hash = calcular_hash_mensagem(mensagem_taf)
@@ -409,15 +405,15 @@ def verificar_e_alertar():
         # --- METARs e SPECI ---
         metars_data = obter_mensagens_redemet("metar", aerodromo) 
         if metars_data and metars_data['data']:
-            for item in metars_data['data']:
+            for item in metars_data['data']: # Renomeado 'metar_speci' para 'item'
                 mensagem_metar_speci = ""
-                if isinstance(item, dict) and 'mensagem' in item:
-                    mensagem_metar_speci = item['mensagem']
+                if isinstance(item, dict):
+                    mensagem_metar_speci = item.get('mensagem', '')
                 elif isinstance(item, str):
                     mensagem_metar_speci = item
                 
                 if not mensagem_metar_speci:
-                    print(f"Mensagem METAR/SPECI vazia ou inválida para {aerodromo}. Item: {item}")
+                    print(f"Mensagem METAR/SPECI vazia ou inválida para {aerodromo}. Conteúdo: {item}")
                     continue
 
                 metar_speci_hash = calcular_hash_mensagem(mensagem_metar_speci)
