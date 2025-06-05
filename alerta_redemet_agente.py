@@ -12,8 +12,8 @@ TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 # ID do chat para onde as mensagens serão enviadas (pode ser um grupo ou um usuário)
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
-# Substitua pela sua chave da API da REDEMET (quando disponível)
-# REDEMET_API_KEY = os.getenv('REDEMET_API_KEY') 
+# Chave da API da REDEMET (OBRIGATÓRIO AGORA!)
+REDEMET_API_KEY = os.getenv('REDEMET_API_KEY') 
 
 # Aeródromos de interesse (SBTA para testes iniciais)
 AERODROMOS_INTERESSE = ["SBTA"]
@@ -22,8 +22,15 @@ AERODROMOS_INTERESSE = ["SBTA"]
 # No GitHub Actions, o agendamento é feito pelo cron no .yml
 INTERVALO_VERIFICACAO = 300 
 
+# URLs da API REDEMET
+BASE_REDEMET_API_URL = "https://api-redemet.decea.mil.br/mensagens"
+REDEMET_ENDPOINTS = {
+    "METAR": f"{BASE_REDEMET_API_URL}/metar",
+    "TAF": f"{BASE_REDEMET_API_URL}/taf",
+    "AVISO": f"{BASE_REDEMET_API_URL}/aviso",
+}
+
 # Dicionário de códigos METAR/TAF e suas descrições
-# ATENÇÃO: HZ (Névoa Seca) foi removido, e a detecção de VA (Cinzas Vulcânicas) será mais específica.
 CODIGOS_METAR_TAF_MAP = {
     "TS": "Trovoada",
     "RA": "Chuva",
@@ -39,9 +46,7 @@ CODIGOS_METAR_TAF_MAP = {
     "UP": "Precipitação Desconhecida",
     "FG": "Nevoeiro",
     "BR": "Névoa",
-    # "HZ": "Névoa Seca (Haze)", # REMOVIDO: Não necessário para alertas críticos
     "FU": "Fumaça",
-    # "VA": "Cinzas Vulcânicas", # REMOVIDO DAQUI para detecção mais específica
     "DU": "Poeira Generalizada",
     "SA": "Areia",
     "BLDU": "Poeira Levantada",
@@ -65,14 +70,24 @@ CODIGOS_METAR_TAF_MAP = {
 }
 
 # Armazenamento em memória para evitar alertas duplicados
-# Em um ambiente de produção, isso seria um banco de dados ou cache persistente
 alertas_enviados_cache = {} # {hash_da_mensagem: timestamp_envio}
 
 # --- Funções Auxiliares ---
 
 def calcular_hash_mensagem(mensagem):
     """Calcula um hash simples da mensagem para evitar duplicatas."""
+    # Para Avisos, o número do aviso e o ICAO de origem são importantes
+    # Ex: SBRF SBLE/SBTA/SBJE/SNBR/SWKQ AD WRNG 4 VALID...
+    # Extrair "AD WRNG X" e o aeródromo de interesse
+    if "AD WRNG" in mensagem:
+        match = re.search(r'AD WRNG (\d+)\s+VALID', mensagem)
+        if match:
+            # Hash baseado no aeródromo de interesse e no número do aviso
+            return hash(f"AVISO_WRNG_{match.group(1)}_{AERODROMOS_INTERESSE[0]}")
+    # Para METAR/SPECI/TAF, o corpo da mensagem é suficiente, mas podemos incluir o ICAO e o tipo
+    # para garantir unicidade mesmo se mensagens idênticas aparecerem em outros aeródromos (improvável)
     return hash(mensagem)
+
 
 def enviar_mensagem_telegram(chat_id, texto):
     """Envia uma mensagem para o Telegram."""
@@ -89,81 +104,51 @@ def enviar_mensagem_telegram(chat_id, texto):
     except requests.exceptions.RequestException as e:
         print(f"Erro ao enviar mensagem para o Telegram: {e}")
 
-def obter_mensagens_redemet_simulada(endpoint, aerodromo=None):
+def obter_mensagens_redemet_real(endpoint_type, aerodromo):
     """
-    Função de simulação para testar a lógica SEM a API real.
-    Retorna dados de exemplo como se viessem da API da REDEMET.
+    Função para buscar dados reais da API da REDEMET.
+    endpoint_type pode ser "METAR", "TAF" ou "AVISO".
     """
-    print(f"Simulando busca de dados da REDEMET para {endpoint} em {aerodromo}...")
+    print(f"Buscando dados da REDEMET para {endpoint_type} em {aerodromo}...")
     
-    # Exemplo de data dinâmica para as mensagens simuladas
-    hoje_utc = datetime.now(pytz.utc)
-    dia_str = hoje_utc.strftime('%d') # Dia atual
-    hora_str = hoje_utc.strftime('%H') # Hora atual
-    minuto_str = hoje_utc.strftime('%M') # Minuto atual
-    proxima_hora_str = (hoje_utc + timedelta(hours=1)).strftime('%H') # Próxima hora
-    proxima_hora_min_str = (hoje_utc + timedelta(minutes=5)).strftime('%H%M') # Próxima hora e 5 minutos
+    url = f"{REDEMET_ENDPOINTS[endpoint_type]}/{aerodromo}"
+    headers = {
+        "x-api-key": REDEMET_API_KEY
+    }
 
-
-    # AVISOS DE AERÓDROMO (usando data dinâmica para parecerem "frescos")
-    avisos_simulados = [
-        f"SBGL SBSJ/SBTA AD WRNG 1 VALID {dia_str}{hora_str}00/{dia_str}{proxima_hora_str}00 TS SFC WSPD 15KT MAX 30 FCST NC=", 
-        f"SBGR SBBP/SBTA AD WRNG 2 VALID {dia_str}{hoje_utc.strftime('%H%M')}/{dia_str}{(hoje_utc + timedelta(hours=2)).strftime('%H%M')} SFC WSPD 20KT MAX 35 FCST NC=",
-        f"SBSP SBTA AD WRNG 3 VALID {dia_str}{hoje_utc.replace(hour=2, minute=0, second=0, microsecond=0).strftime('%H%M')}/{dia_str}{hoje_utc.replace(hour=6, minute=0, second=0, microsecond=0).strftime('%H%M')} FG VIS < 500M FCST NC=",
-        f"SBTA WS WRNG 4 VALID {dia_str}{hoje_utc.strftime('%H%M')}/{dia_str}{(hoje_utc + timedelta(minutes=90)).strftime('%H%M')} MOD WS IN APCH RWY28 REP AT {hoje_utc.strftime('%H%M')}Z A320=",
-        f"SBRJ SBTA AD WRNG 5 VALID {dia_str}{hoje_utc.strftime('%H%M')}/{dia_str}{(hoje_utc + timedelta(hours=4)).strftime('%H%M')} TS SFC WSPD 25KT MAX 45 FCST NC=",
-        f"SBGO SBTA AD WRNG 6 VALID {dia_str}{hoje_utc.replace(hour=11, minute=0, second=0, microsecond=0).strftime('%H%M')}/{dia_str}{hoje_utc.replace(hour=14, minute=0, second=0, microsecond=0).strftime('%H%M')} +RA FCST NC=",
-        f"SBTA AD WRNG 7 VALID {dia_str}{hora_str}{minuto_str}/{dia_str}{(hoje_utc + timedelta(hours=3)).strftime('%H%M')} VA FCST NC=", # Exemplo com VA real
-    ]
-
-    # TAFs (usando data dinâmica)
-    tafs_simulados = [
-        f"TAF SBTA {dia_str}{hora_str}00Z {dia_str}{hora_str}/{(int(dia_str)+1):02d}{hora_str} 33010KT 9999 SCT015 BKN030 TX25/{dia_str}{(hoje_utc + timedelta(hours=3)).strftime('%H')}Z TN18/{ (int(dia_str)+1):02d}{(hoje_utc + timedelta(hours=15)).strftime('%H')}Z TEMPO {dia_str}{(hoje_utc + timedelta(hours=2)).strftime('%H')}/{dia_str}{(hoje_utc + timedelta(hours=6)).strftime('%H')} 30020G35KT 4000 TSRA BKN008 FEW030CB BECMG {dia_str}{(hoje_utc + timedelta(hours=6)).strftime('%H')}/{dia_str}{(hoje_utc + timedelta(hours=8)).strftime('%H')} 27010KT 9999 NSW SCT020 RMK PBZ=",
-        f"TAF SBTA {dia_str}0000Z {dia_str}00/{dia_str}24 00000KT 9999 SKC TX28/{dia_str}17Z TN15/{dia_str}06Z PROB40 {dia_str}03/{dia_str}08 0800 FG OVC002 BECMG {dia_str}10/{dia_str}12 9999 NSW RMK PST=",
-        f"TAF SBTA {dia_str}0600Z {dia_str}06/{(int(dia_str)+1):02d}06 18008KT 9999 FEW025 SCT040 TEMPO {dia_str}08/{dia_str}12 20015KT 3000 +RA BKN010 RMK PQL=",
-        f"TAF SBTA {dia_str}1800Z {dia_str}18/{(int(dia_str)+1):02d}18 27005KT CAVOK TX26/{dia_str}19Z TN16/{(int(dia_str)+1):02d}07Z RMK PRS=",
-    ]
-
-    # SPECIs (usando data dinâmica)
-    specis_simulados = [
-        f"SPECI SBTA {dia_str}{proxima_hora_min_str}Z 25022KT 9000 TS SCT030 FEW040CB BKN100 22/18 Q1015=",
-        f"SPECI SBTA {dia_str}{(hoje_utc + timedelta(minutes=10)).strftime('%H%M')}Z 18015G30KT 3000 +RA BR BKN010 OVC020 20/19 Q1016=",
-        f"SPECI SBTA {dia_str}{hoje_utc.replace(hour=3, minute=30, second=0, microsecond=0).strftime('%H%M')}Z 00000KT 0500 FG OVC001 15/15 Q1020=",
-        # Exemplo de SPECI com VA para testar a detecção precisa
-        f"SPECI SBTA {dia_str}{(hoje_utc + timedelta(minutes=30)).strftime('%H%M')}Z VRB03KT 9999 VA BKN008 20/19 Q1018=",
-        f"SPECI SBTA {dia_str}{(hoje_utc + timedelta(minutes=5)).strftime('%H%M')}Z VRB02KT 9999 WS RWY28 25/20 Q1015=",
-    ]
-
-    # METARs (usando data dinâmica)
-    metars_simulados = [
-        f"METAR SBTA {dia_str}{proxima_hora_min_str}Z 18005KT 9999 SCT025 24/18 Q1017=",
-        f"METAR SBTA {dia_str}{(hoje_utc + timedelta(minutes=10)).strftime('%H%M')}Z 15012KT 9999 -RA BKN030 23/19 Q1016=",
-        f"METAR SBTA {dia_str}{(hoje_utc + timedelta(minutes=15)).strftime('%H%M')}Z 29025G38KT 9999 FEW040 25/17 Q1014=",
-        f"METAR SBTA {dia_str}{(hoje_utc + timedelta(minutes=20)).strftime('%H%M')}Z VRB03KT 9999 BKN005 20/19 Q1018=",
-        f"METAR SBTA {dia_str}{(hoje_utc + timedelta(minutes=25)).strftime('%H%M')}Z 12007KT 9999 TS SCT030 FEW040CB 26/20 Q1015=",
-    ]
-
-
-    # Distribui as mensagens de acordo com o endpoint e o aeródromo
-    mensagens_para_aerodromo = []
-    
-    if aerodromo and aerodromo.upper() == "SBTA":
-        if "AVISO" in endpoint.upper():
-            for msg in avisos_simulados:
-                if aerodromo.upper() in msg.upper():
-                    mensagens_para_aerodromo.append({"mensagem": msg})
-        elif "TAF" in endpoint.upper():
-            for msg in tafs_simulados: 
-                if aerodromo.upper() in msg.upper():
-                    mensagens_para_aerodromo.append({"mensagem": msg})
-        elif "METAR" in endpoint.upper():
-            for msg in metars_simulados + specis_simulados: 
-                if aerodromo.upper() in msg.upper():
-                    mensagens_para_aerodromo.append({"mensagem": msg})
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status() # Lança exceção para erros HTTP 4xx/5xx
+        data = response.json()
+        
+        # A API retorna um dicionário com uma chave 'data' que contém a lista de mensagens
+        if data and 'data' in data and isinstance(data['data'], list):
+            # As mensagens vêm como objetos {'id': ..., 'mens': 'TEXTO_DA_MENSAGEM'}
+            # Queremos apenas o texto da mensagem.
+            # Também filtra mensagens vazias ou inválidas.
+            valid_messages = []
+            for item in data['data']:
+                if isinstance(item, dict) and 'mens' in item and item['mens']:
+                    valid_messages.append({"mensagem": item['mens']})
+                elif isinstance(item, dict) and 'mensagem' in item and item['mensagem']: # Para caso a chave seja 'mensagem' em vez de 'mens'
+                     valid_messages.append({"mensagem": item['mensagem']})
+            return {"data": valid_messages}
         else:
-            print(f"Endpoint desconhecido para simulação: {endpoint}")
+            print(f"Resposta da API REDEMET para {endpoint_type} em {aerodromo} não contém 'data' ou não é uma lista: {data}")
+            return {"data": []}
 
-    return {"data": mensagens_para_aerodromo}
+    except requests.exceptions.Timeout:
+        print(f"Erro de Timeout ao buscar {endpoint_type} para {aerodromo} na REDEMET.")
+        return {"data": []}
+    except requests.exceptions.RequestException as e:
+        print(f"Erro ao buscar {endpoint_type} para {aerodromo} na REDEMET: {e}")
+        # Se a chave API estiver inválida, isso pode aparecer aqui
+        if response.status_code == 401 or response.status_code == 403:
+            print("Verifique se a sua REDEMET_API_KEY está correta e ativa.")
+        return {"data": []}
+    except json.JSONDecodeError:
+        print(f"Erro ao decodificar JSON para {endpoint_type} em {aerodromo}: {response.text}")
+        return {"data": []}
 
 def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
     """
@@ -195,7 +180,7 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
                             alertas_encontrados.append(f"{descricao} (VISIBILIDADE < 1000M)")
                     elif "FG" in mensagem_upper: 
                          alertas_encontrados.append(descricao) 
-                elif codigo_icao == "+RA": # +RA já é um código específico agora
+                elif codigo_icao == "+RA": 
                     alertas_encontrados.append("Chuva Forte")
                 elif codigo_icao == "CB":
                     cb_match = re.search(r'(FEW|SCT|BKN|OVC)(\d{3})CB', mensagem_upper)
@@ -207,10 +192,13 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
                 else: 
                     alertas_encontrados.append(descricao)
         
-        # DETECÇÃO ESPECÍFICA PARA CINZAS VULCÂNICAS (VA)
-        # Verifica se VA está como um fenômeno (ex: em uma sequência de tempo, após vento/visibilidade)
-        if re.search(r'(?:[A-Z]{2}\s)?VA\b', mensagem_upper) and "VALID" not in mensagem_upper: # Ignora se "VALID" estiver na mesma linha
-            alertas_encontrados.append("Cinzas Vulcânicas (VA)")
+        # DETECÇÃO ESPECÍFICA PARA CINZAS VULCÂNICAS (VA) em METAR/SPECI
+        # Procura por 'VA' como um código de fenômeno e não na palavra 'VALID'
+        # Verifica se 'VA' não é precedido ou seguido por caracteres que o tornem parte de outra palavra
+        if re.search(r'(?<![A-Z])VA(?![A-Z])', mensagem_upper) and "VALID" not in mensagem_upper:
+             # Adiciona uma verificação extra para garantir que não é parte de uma data ou hora (ex: 2817VA)
+             if not re.search(r'\d{4}VA|\d{2}VA\d{2}', mensagem_upper):
+                alertas_encontrados.append("Cinzas Vulcânicas (VA)")
 
         # --- Lógica para ventos acima de 20KT e rajadas acima de 20KT (para METAR/SPECI/TAF) ---
         wind_match = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
@@ -252,7 +240,8 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
                         alertas_encontrados.append(f"PREVISÃO: {descricao}")
             
             # DETECÇÃO ESPECÍFICA PARA CINZAS VULCÂNICAS (VA) EM TAF
-            if re.search(r'(?:PROB\d{2}|TEMPO|BECMG)\s+VA\b', mensagem_upper): # Verifica VA com prefixo de tendência/probabilidade
+            # Procura por 'VA' como um código de fenômeno dentro de TEMPO, BECMG, PROB
+            if re.search(r'(?:PROB\d{2}|TEMPO|BECMG)\s+VA\b', mensagem_upper):
                 alertas_encontrados.append("PREVISÃO: Cinzas Vulcânicas (VA)")
 
             wind_groups_in_taf = re.findall(r'(?:(TEMPO|BECMG|PROB\d{2})\s)?(?:.*?)(VRB|\d{3})(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
@@ -322,6 +311,7 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
             aviso_fenomenos_desc.append("Tesoura de Vento (Wind Shear)")
             
         # CORREÇÃO PARA CINZAS VULCÂNICAS (VA) EM AVISOS: verifica se VA é uma palavra separada
+        # e explicitamente NÃO está contido na palavra "VALID"
         if re.search(r'\bVA\b', mensagem_upper) and "VALID" not in mensagem_upper: 
             aviso_fenomenos_desc.append("Cinzas Vulcânicas (VA)")
             
@@ -331,7 +321,6 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
         if aviso_fenomenos_desc:
             alertas_encontrados.extend(list(set(aviso_fenomenos_desc)))
         else: 
-            # Manter esta parte para debug se um aviso não mapeado passar
             alertas_encontrados.append("Conteúdo não mapeado")
 
 
@@ -346,7 +335,8 @@ def verificar_e_alertar():
 
     for aerodromo in AERODROMOS_INTERESSE:
         # --- Avisos de Aeródromo ---
-        avisos_data = obter_mensagens_redemet_simulada("avisos", aerodromo) 
+        # ATENÇÃO: Mudando de obter_mensagens_redemet_simulada para obter_mensagens_redemet_real
+        avisos_data = obter_mensagens_redemet_real("AVISO", aerodromo) 
         if avisos_data and avisos_data['data']:
             for aviso in avisos_data['data']:
                 mensagem_aviso = aviso['mensagem']
@@ -371,7 +361,8 @@ def verificar_e_alertar():
                     print(f"Aviso de Aeródromo para {aerodromo} já alertado: {mensagem_aviso}")
 
         # --- TAFs ---
-        tafs_data = obter_mensagens_redemet_simulada("taf", aerodromo) 
+        # ATENÇÃO: Mudando de obter_mensagens_redemet_simulada para obter_mensagens_redemet_real
+        tafs_data = obter_mensagens_redemet_real("TAF", aerodromo) 
         if tafs_data and tafs_data['data']:
             for taf in tafs_data['data']:
                 mensagem_taf = taf['mensagem']
@@ -396,7 +387,8 @@ def verificar_e_alertar():
                     print(f"TAF para {aerodromo} já alertado: {mensagem_taf}")
 
         # --- METARs e SPECI ---
-        metars_data = obter_mensagens_redemet_simulada("metar", aerodromo) 
+        # ATENÇÃO: Mudando de obter_mensagens_redemet_simulada para obter_mensagens_redemet_real
+        metars_data = obter_mensagens_redemet_real("METAR", aerodromo) 
         if metars_data and metars_data['data']:
             for metar_speci in metars_data['data']:
                 mensagem_metar_speci = metar_speci['mensagem']
@@ -422,6 +414,7 @@ def verificar_e_alertar():
                 else:
                     print(f"{tipo} para {aerodromo} já alertado: {mensagem_metar_speci}")
 
+    # Limpar cache de alertas antigos (opcional, para evitar que o cache cresça indefinidamente)
     for msg_hash in list(alertas_enviados_cache.keys()):
         if agora_utc - alertas_enviados_cache[msg_hash] > timedelta(hours=24):
             del alertas_enviados_cache[msg_hash]
@@ -431,6 +424,9 @@ if __name__ == "__main__":
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         print("Erro: Variáveis de ambiente TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID não configuradas.")
         print("Por favor, defina-as antes de executar o script.")
+    elif not REDEMET_API_KEY:
+        print("Erro: Variável de ambiente REDEMET_API_KEY não configurada.")
+        print("Por favor, defina-a antes de executar o script.")
     else:
         print("Executando verificação de alertas REDEMET (execução única para GitHub Actions).")
         verificar_e_alertar() 
