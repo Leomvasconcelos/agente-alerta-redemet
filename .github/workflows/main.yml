@@ -30,10 +30,10 @@ jobs:
 
       - name: Verificar variáveis de ambiente (DEBUG) # ATENÇÃO: Sem ** aqui!
         run: |
-          echo "TELEGRAM_BOT_TOKEN_PRESENTE: ${{ env.TELEGRAM_BOT_TOKEN != '' }}"
-          echo "TELEGRAM_CHAT_ID_PRESENTE: ${{ env.TELEGRAM_CHAT_ID != '' }}"
-          echo "REDEMET_API_KEY_PRESENTE: ${{ env.REDEMET_API_KEY != '' }}"
-          echo "REDEMET_API_KEY_LENGTH: ${{ env.REDEMET_API_KEY | length }}"
+              echo "TELEGRAM_BOT_TOKEN_PRESENTE: ${{ env.TELEGRAM_BOT_TOKEN != '' }}"
+              echo "TELEGRAM_CHAT_ID_PRESENTE: ${{ env.TELEGRAM_CHAT_ID != '' }}"
+              echo "REDEMET_API_KEY_PRESENTE: ${{ env.REDEMET_API_KEY != '' }}"
+              echo "REDEMET_API_KEY_LENGTH: ${{ env.REDEMET_API_KEY | length }}"
         env:
           REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }} # Repetir explicitamente para depuração
 
