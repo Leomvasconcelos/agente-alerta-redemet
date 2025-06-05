@@ -88,6 +88,7 @@ def enviar_mensagem_telegram(chat_id, texto):
 def obter_mensagens_redemet(endpoint, aerodromo):
     """
     Obtém dados meteorológicos da API real da REDEMET.
+    Retorna apenas a lista de mensagens contida na chave 'data'.
     """
     url = f"https://api-redemet.decea.mil.br/mensagens/{endpoint}/{aerodromo}"
     headers = {
@@ -104,12 +105,14 @@ def obter_mensagens_redemet(endpoint, aerodromo):
         response.raise_for_status() # Levanta um erro para códigos de status HTTP 4xx/5xx
         data = response.json()
         
-        # CORREÇÃO CRÍTICA AQUI: Retornar APENAS o conteúdo da chave 'data'
-        if data and 'data' in data and data['data']:
+        # *** CORREÇÃO AQUI ***
+        # Retorna APENAS a lista de mensagens da chave 'data'.
+        # Se 'data' não existir ou for vazia, retorna uma lista vazia.
+        if data and 'data' in data and isinstance(data['data'], list):
             print(f"Dados da REDEMET obtidos com sucesso para {aerodromo.upper()}.")
-            return {"data": data['data']} # Retorna apenas a lista de mensagens
+            return {"data": data['data']} 
         else:
-            print(f"Nenhum dado encontrado para {aerodromo.upper()} no endpoint {endpoint.upper()}. Resposta: {data}")
+            print(f"Nenhum dado válido encontrado para {aerodromo.upper()} no endpoint {endpoint.upper()}. Resposta: {data}")
             return {"data": []} # Retorna estrutura vazia consistente
     except requests.exceptions.HTTPError as http_err:
         print(f"Erro HTTP ao acessar REDEMET API para {aerodromo.upper()} ({endpoint.upper()}): {http_err}")
@@ -129,7 +132,7 @@ def obter_mensagens_redemet(endpoint, aerodromo):
         return {"data": []}
     except json.JSONDecodeError as json_err:
         print(f"Erro ao decodificar JSON da REDEMET API para {aerodromo.upper()}: {json_err}")
-        print(f"Response text: {response.text}")
+        # print(f"Response text: {response.text}") # Descomente para depurar a resposta bruta se houver erro JSON
         return {"data": []}
 
 
@@ -340,8 +343,8 @@ def verificar_e_alertar():
                 mensagem_aviso = ""
                 # Prioriza dicionários com a chave 'mensagem', senão tenta como string direta
                 if isinstance(item, dict) and 'mensagem' in item:
-                    mensagem_aviso = item['mensagem'] # Acessa diretamente, pois a chave 'mensagem' deve existir
-                elif isinstance(item, str):
+                    mensagem_aviso = item['mensagem'] 
+                elif isinstance(item, str): # Fallback para o caso de a API retornar a mensagem diretamente como string
                     mensagem_aviso = item
                 
                 if not mensagem_aviso:
