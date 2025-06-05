@@ -1,37 +1,41 @@
 name: Agente Alerta REDEMET
-'on':
-  workflow_dispatch: null
+
+on:
+  workflow_dispatch: # Permite execução manual
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '*/5 * * * *' # Executa a cada 5 minutos
+
 jobs:
   run-alert-agent:
     runs-on: ubuntu-latest
-    env:
-      TELEGRAM_BOT_TOKEN: '${{ secrets.TELEGRAM_BOT_TOKEN }}'
-      TELEGRAM_CHAT_ID: '${{ secrets.TELEGRAM_CHAT_ID }}'
-      REDEMET_API_KEY: '${{ secrets.REDEMET_API_KEY }}'
-    steps:
+
+    env: # Esta seção é CRÍTICA!
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }}
+
+    steps: # ESTA LINHA DEVE ESTAR IDENTADA COM 4 ESPAÇOS EM RELAÇÃO A 'jobs:'
       - name: Checkout código
         uses: actions/checkout@v4
+
       - name: Configurar Python 3.9 (Versão explícita)
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.9' # Usar uma versão específica para consistência
+
       - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Verificar variáveis de ambiente (DEBUG)
-        run: >
-          echo "TELEGRAM_BOT_TOKEN_PRESENTE: ${{ env.TELEGRAM_BOT_TOKEN != ''
-          }}"
 
+      - name: Verificar variáveis de ambiente (DEBUG) # ATENÇÃO: Sem ** aqui!
+        run: |
+          echo "TELEGRAM_BOT_TOKEN_PRESENTE: ${{ env.TELEGRAM_BOT_TOKEN != '' }}"
           echo "TELEGRAM_CHAT_ID_PRESENTE: ${{ env.TELEGRAM_CHAT_ID != '' }}"
-
           echo "REDEMET_API_KEY_PRESENTE: ${{ env.REDEMET_API_KEY != '' }}"
-
           echo "REDEMET_API_KEY_LENGTH: ${{ env.REDEMET_API_KEY | length }}"
         env:
-          REDEMET_API_KEY: '${{ secrets.REDEMET_API_KEY }}'
+          REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }} # Repetir explicitamente para depuração
+
       - name: Executar o script de alerta
         run: python alerta_redemet_agente.py
