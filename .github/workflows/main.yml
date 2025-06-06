@@ -24,15 +24,13 @@ jobs:
           pip install requests pytz
 
       # --- PASSO MODIFICADO ---
-      # Este passo agora usa o seu token pessoal para ter permissão de baixar o cache
+      # A linha 'workflow' foi alterada para usar o nome do arquivo, que é mais confiável.
       - name: Baixar Cache de Alertas Anterior
         uses: dawidd6/action-download-artifact@v3
         with:
-          # Adicionada esta linha para usar o seu Personal Access Token
           github_token: ${{ secrets.ACTIONS_PAT }}
-          
-          # O resto dos parâmetros continua igual
-          workflow: ${{ github.workflow }}
+          # SUBSTITUA 'main.yml' ABAIXO PELO NOME EXATO DO SEU ARQUIVO DE WORKFLOW
+          workflow: main.yml
           branch: ${{ github.ref_name }}
           name: persistent-alert-cache-artifact
           path: .
