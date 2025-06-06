@@ -18,7 +18,7 @@ AERODROMOS_INTERESSE = ["SBTA"]
 SIGNIFICANT_PHENOMENA_METAR_TAF = {
     "TS": "Trovoada",
     "FG": "Nevoeiro",
-    "GR": "Granizo", # Adicionado
+    "GR": "Granizo",
 }
 
 # --- Lógica de Cache Persistente ---
@@ -135,7 +135,7 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
             alertas_encontrados.append("Cinzas Vulcânicas")
 
         # 3. Checar Teto Baixo (BKN ou OVC abaixo de 600ft)
-        match_teto = re.search(r'\b(BKN|OVC)00([1-5])\b', mensagem_upper.replace("OVC000", "OVC001"))
+        match_teto = re.search(r'\b(BKN|OVC)00[0-5]', mensagem_upper)
         if match_teto:
              teto_tipo = "Parcialmente Nublado" if match_teto.group(1) == "BKN" else "Nublado"
              alertas_encontrados.append(f"Teto Baixo ({teto_tipo} < 600ft)")
@@ -161,17 +161,13 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
                 if not prefix_match: continue
                 prefix = prefix_match.group(1)
                 
-                # Checa fenômenos no bloco
                 for codigo, descricao in SIGNIFICANT_PHENOMENA_METAR_TAF.items():
                     if re.search(r'\b' + re.escape(codigo) + r'\b', block):
                         alertas_encontrados.append(f"{prefix}: {descricao}")
-                # Checa VA no bloco
                 if re.search(r'\bVA\b', block):
                     alertas_encontrados.append(f"{prefix}: Cinzas Vulcânicas")
-                # Checa teto baixo no bloco
-                if re.search(r'\b(BKN|OVC)00[1-5]\b', block):
+                if re.search(r'\b(BKN|OVC)00[0-5]', block):
                      alertas_encontrados.append(f"{prefix}: Teto Baixo (< 600ft)")
-                # Checa vento forte no bloco
                 wind_match_block = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', block)
                 if wind_match_block:
                     sustained_wind_block = int(wind_match_block.group(2))
@@ -181,14 +177,23 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
 
     # --- Lógica para Avisos de Aeródromo ---
     elif "AD WRNG" in tipo_mensagem.upper() or "AVISO DE AERÓDROMO" in tipo_mensagem.upper():
+        
+        # --- CORREÇÃO APLICADA AQUI ---
+        
         if "TS" in mensagem_upper or "TROVOADA" in mensagem_upper: alertas_encontrados.append("Trovoada")
-        wind_warning_match = re.search(r'SFC WSPD (\d+)KT(?: MAX (\d+)KT)?', mensagem_upper)
+        
+        # Regex ajustada para capturar 'MAX' sem 'KT' e lógica para formatar a string
+        wind_warning_match = re.search(r'SFC WSPD (\d+)KT(?: MAX (\d+)(?:KT)?)?', mensagem_upper)
         if wind_warning_match:
-            min_wind, max_wind_str = int(wind_warning_match.group(1)), wind_warning_match.group(2)
-            wind_parts = []
-            if min_wind > 0: wind_parts.append(f"Vento de Superfície de {min_wind}KT")
-            if max_wind_str: wind_parts.append(f"Rajadas de {max_wind_str}KT")
-            if wind_parts: alertas_encontrados.append(" e ".join(wind_parts))
+            sustained_wind = wind_warning_match.group(1)
+            max_wind_str = wind_warning_match.group(2)
+            
+            wind_text = f"Vento de Superfície de {sustained_wind}KT"
+            if max_wind_str:
+                wind_text += f" com máximo de {max_wind_str}KT"
+            
+            alertas_encontrados.append(wind_text)
+            
         if "GRANIZO" in mensagem_upper: alertas_encontrados.append("Granizo")
         if "FG" in mensagem_upper or "NEVOEIRO" in mensagem_upper: alertas_encontrados.append("Nevoeiro")
         if "CHUVA FORTE" in mensagem_upper or re.search(r'\+RA\b', mensagem_upper): alertas_encontrados.append("Chuva Forte")
