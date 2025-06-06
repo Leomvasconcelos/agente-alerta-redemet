@@ -2,8 +2,8 @@ name: Alerta MET REDEMET
 
 on:
   schedule:
-    # Executa a cada 15 minutos. Você pode ajustar este valor.
-    - cron: '*/15 * * * *'
+    # Executa a cada 5 minutos. Você pode ajustar este valor.
+    - cron: '*/5 * * * *'
   workflow_dispatch: # Permite que você execute este workflow manualmente na aba "Actions" do GitHub
 
 jobs:
