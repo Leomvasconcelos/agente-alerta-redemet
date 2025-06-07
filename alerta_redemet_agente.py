@@ -89,73 +89,123 @@ def obter_mensagens_redemet(endpoint, aerodromo):
             if isinstance(data_principal, dict):
                 lista_mensagens_aninhada = data_principal.get('data')
                 if isinstance(lista_mensagens_aninhada, list):
+                    print(f"Dados da REDEMET (estrutura aninhada) obtidos com sucesso para {aerodromo.upper()}. {len(lista_mensagens_aninhada)} mensagens.")
                     return {"data": lista_mensagens_aninhada}
-                else: return {"data": []}
+                else:
+                    conteudo_data_principal = str(data_principal)[:200]
+                    if not lista_mensagens_aninhada and 'data' in data_principal and data_principal['data'] is not None and not data_principal['data'] :
+                         print(f"Dados da REDEMET (estrutura aninhada) obtidos para {aerodromo.upper()}, mas a lista de mensagens está vazia.")
+                         return {"data": []}
+                    print(f"Chave 'data' principal é um dicionário, mas a chave 'data' aninhada não é uma lista ou não foi encontrada como esperado.")
+                    return {"data": []}
             elif isinstance(data_principal, list):
+                print(f"Dados da REDEMET (estrutura direta) obtidos com sucesso para {aerodromo.upper()}. {len(data_principal)} mensagens.")
                 return {"data": data_principal}
-            else: return {"data": []}
-        else: return {"data": []}
-    except requests.exceptions.RequestException:
-        return {"data": []}
-
-def analisar_condicoes_significativas(texto_analise):
-    """Função auxiliar para analisar um trecho de texto e retornar uma lista de condições significativas únicas."""
-    condicoes_encontradas = set() # Usar um set para evitar duplicatas desde o início
-    
-    # 1. Fenômenos (TS, FG, GR)
-    for codigo, descricao in SIGNIFICANT_PHENOMENA_METAR_TAF.items():
-        if re.search(r'\b' + re.escape(codigo) + r'\b', texto_analise):
-            condicoes_encontradas.add(descricao)
-            
-    # 2. Cinzas Vulcânicas (VA)
-    if re.search(r'\bVA\b', texto_analise):
-        condicoes_encontradas.add("Cinzas Vulcânicas")
-
-    # 3. Teto Baixo (< 600ft)
-    match_teto = re.search(r'\b(BKN|OVC)00[0-5]', texto_analise)
-    if match_teto:
-         teto_tipo = "Parcialmente Nublado" if match_teto.group(1) == "BKN" else "Nublado"
-         condicoes_encontradas.add(f"Teto Baixo ({teto_tipo} < 600ft)")
-
-    # 4. Vento Forte (>= 20kt)
-    wind_match = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', texto_analise)
-    if wind_match:
-        sustained_wind = int(wind_match.group(2))
-        gust_wind_str = wind_match.group(4)
-        wind_desc_parts = []
-        if sustained_wind >= 20: wind_desc_parts.append(f"Vento Médio de {sustained_wind}KT")
-        if gust_wind_str and int(gust_wind_str) >= 20: wind_desc_parts.append(f"Rajadas de {int(gust_wind_str)}KT")
-        if wind_desc_parts: condicoes_encontradas.add(" e ".join(wind_desc_parts))
-        
-    return list(condicoes_encontradas)
+            else:
+                print(f"Chave 'data' principal encontrada, mas seu conteúdo não é um dicionário (esperado) nem uma lista.")
+                return {"data": []}
+        else:
+            resposta_api_str = str(data_json)[:200] if data_json else "Resposta vazia ou inválida"
+            print(f"Nenhuma chave 'data' principal encontrada para {aerodromo.upper()}. Resposta da API: {resposta_api_str}")
+            return {"data": []}
+    except requests.exceptions.HTTPError as http_err: print(f"Erro HTTP ao acessar REDEMET API para {aerodromo.upper()} ({endpoint.upper()}): {http_err}")
+    except requests.exceptions.ConnectionError as conn_err: print(f"Erro de conexão com a REDEMET API para {aerodromo.upper()}: {conn_err}")
+    except requests.exceptions.Timeout as timeout_err: print(f"Timeout ao acessar REDEMET API para {aerodromo.upper()}: {timeout_err}")
+    except requests.exceptions.RequestException as req_err: print(f"Erro geral ao acessar REDEMET API para {aerodromo.upper()}: {req_err}")
+    except json.JSONDecodeError as json_err: print(f"Erro ao decodificar JSON da REDEMET API para {aerodromo.upper()}: {json_err}")
+    return {"data": []}
 
 def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
-    """Analisa a mensagem com base nas novas regras de alerta."""
+    """
+    Analisa a mensagem com base nas novas regras de alerta.
+    """
     alertas_encontrados = []
     mensagem_upper = mensagem_texto.upper()
 
+    # --- Lógica para METAR, SPECI, TAF ---
+    if "METAR" in tipo_mensagem.upper() or "SPECI" in tipo_mensagem.upper() or "TAF" in tipo_mensagem.upper():
+        
+        # 1. Checar Fenômenos Significativos (TS, FG, GR)
+        for codigo, descricao in SIGNIFICANT_PHENOMENA_METAR_TAF.items():
+            if re.search(r'\b' + re.escape(codigo) + r'\b', mensagem_upper):
+                alertas_encontrados.append(descricao)
+
+        # 2. Checar Cinzas Vulcânicas (VA)
+        if re.search(r'\bVA\b', mensagem_upper):
+            alertas_encontrados.append("Cinzas Vulcânicas")
+
+        # 3. Checar Teto Baixo (BKN ou OVC abaixo de 600ft)
+        match_teto = re.search(r'\b(BKN|OVC)00[0-5]', mensagem_upper)
+        if match_teto:
+             teto_tipo = "Parcialmente Nublado" if match_teto.group(1) == "BKN" else "Nublado"
+             alertas_encontrados.append(f"Teto Baixo ({teto_tipo} < 600ft)")
+
+        # 4. Checar Vento Forte
+        wind_match = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', mensagem_upper)
+        if wind_match:
+            sustained_wind = int(wind_match.group(2))
+            gust_wind_str = wind_match.group(4)
+            wind_desc = []
+            if sustained_wind >= 20:
+                wind_desc.append(f"Vento Médio de {sustained_wind}KT")
+            if gust_wind_str and int(gust_wind_str) >= 20:
+                wind_desc.append(f"Rajadas de {int(gust_wind_str)}KT")
+            if wind_desc:
+                alertas_encontrados.append(" e ".join(wind_desc))
+
+        # Se for TAF, verificar condições nos blocos de tendência também
+        if "TAF" in tipo_mensagem.upper():
+            trend_blocks = re.findall(r'((?:PROB\d{2}|TEMPO|BECMG).*?)(?=PROB\d{2}|TEMPO|BECMG|RMK|$)', mensagem_upper)
+            for block in trend_blocks:
+                prefix_match = re.match(r'(PROB\d{2}|TEMPO|BECMG)', block)
+                if not prefix_match: continue
+                prefix = prefix_match.group(1)
+                
+                for codigo, descricao in SIGNIFICANT_PHENOMENA_METAR_TAF.items():
+                    if re.search(r'\b' + re.escape(codigo) + r'\b', block):
+                        alertas_encontrados.append(f"{prefix}: {descricao}")
+                if re.search(r'\bVA\b', block):
+                    alertas_encontrados.append(f"{prefix}: Cinzas Vulcânicas")
+                if re.search(r'\b(BKN|OVC)00[0-5]', block):
+                     alertas_encontrados.append(f"{prefix}: Teto Baixo (< 600ft)")
+                wind_match_block = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', block)
+                if wind_match_block:
+                    sustained_wind_block = int(wind_match_block.group(2))
+                    gust_wind_str_block = wind_match_block.group(4)
+                    if sustained_wind_block >= 20 or (gust_wind_str_block and int(gust_wind_str_block) >= 20):
+                         alertas_encontrados.append(f"{prefix}: Vento Forte")
+
     # --- Lógica para Avisos de Aeródromo ---
-    if "AD WRNG" in tipo_mensagem.upper() or "AVISO DE AERÓDROMO" in tipo_mensagem.upper():
+    elif "AD WRNG" in tipo_mensagem.upper() or "AVISO DE AERÓDROMO" in tipo_mensagem.upper():
+        
+        # --- CORREÇÃO APLICADA AQUI ---
+        
         if "TS" in mensagem_upper or "TROVOADA" in mensagem_upper: alertas_encontrados.append("Trovoada")
+        
+        # Regex ajustada para capturar 'MAX' sem 'KT' e lógica para formatar a string
         wind_warning_match = re.search(r'SFC WSPD (\d+)KT(?: MAX (\d+)(?:KT)?)?', mensagem_upper)
         if wind_warning_match:
-            sustained_wind, max_wind_str = wind_warning_match.group(1), wind_warning_match.group(2)
+            sustained_wind = wind_warning_match.group(1)
+            max_wind_str = wind_warning_match.group(2)
+            
             wind_text = f"Vento de Superfície de {sustained_wind}KT"
-            if max_wind_str: wind_text += f" com máximo de {max_wind_str}KT"
+            if max_wind_str:
+                wind_text += f" com máximo de {max_wind_str}KT"
+            
             alertas_encontrados.append(wind_text)
+            
         if "GRANIZO" in mensagem_upper: alertas_encontrados.append("Granizo")
         if "FG" in mensagem_upper or "NEVOEIRO" in mensagem_upper: alertas_encontrados.append("Nevoeiro")
         if "CHUVA FORTE" in mensagem_upper or re.search(r'\+RA\b', mensagem_upper): alertas_encontrados.append("Chuva Forte")
         if "WIND SHEAR" in mensagem_upper or re.search(r'\bWS\b', mensagem_upper): alertas_encontrados.append("Tesoura de Vento (Wind Shear)")
         if re.search(r'\bVA\b', mensagem_upper): alertas_encontrados.append("Cinzas Vulcânicas (VA)")
         if "FUMAÇA" in mensagem_upper or "FU" in mensagem_upper: alertas_encontrados.append("Fumaça")
-        if not alertas_encontrados: alertas_encontrados.append("Aviso de Aeródromo Emitido (ver detalhes)")
-    
-    # --- Lógica Unificada e Simplificada para METAR, SPECI e TAF ---
-    else:
-        alertas_encontrados = analisar_condicoes_significativas(mensagem_upper)
+
+        if not alertas_encontrados:
+            alertas_encontrados.append("Aviso de Aeródromo Emitido (ver detalhes)")
 
     return list(set(alertas_encontrados))
+
 
 def verificar_e_alertar():
     global alertas_enviados_cache
@@ -185,14 +235,14 @@ def verificar_e_alertar():
                         if 'mens' in item_msg: mensagem_real = item_msg['mens']
                         elif 'mensagem' in item_msg: mensagem_real = item_msg['mensagem']
                         else:
-                            print(f"Nenhuma chave de mensagem conhecida ('mens', 'mensagem') encontrada no item. Item: {str(item_msg)[:150]}")
+                            print(f"Nenhuma chave de mensagem conhecida ('mens', 'mensagem') encontrada no item para {aerodromo} ({endpoint}). Item: {str(item_msg)[:150]}")
                             continue 
                     elif isinstance(item_msg, str): mensagem_real = item_msg
                     else:
-                        print(f"Item de mensagem em formato totalmente inesperado. Item: {str(item_msg)[:100]}")
+                        print(f"Item de mensagem em formato totalmente inesperado para {aerodromo} ({endpoint}): {str(item_msg)[:100]}")
                         continue 
                     if not mensagem_real.strip():
-                        print(f"Mensagem {tipo_base_mensagem} vazia ou inválida. Item: {str(item_msg)[:100]}")
+                        print(f"Mensagem {tipo_base_mensagem} vazia ou inválida para {aerodromo}. Item: {str(item_msg)[:100]}")
                         continue
                     tipo_atual_mensagem = tipo_base_mensagem
                     if endpoint == "metar": tipo_atual_mensagem = "SPECI" if mensagem_real.upper().startswith("SPECI") else "METAR"
@@ -209,13 +259,13 @@ def verificar_e_alertar():
                             alert_text = (
                                 f"{emoji_alerta} *NOVO ALERTA MET {aerodromo}!* {emoji_alerta}\n\n"
                                 f"Aeródromo: *{aerodromo}* - Tipo: *{tipo_atual_mensagem}*\n"
-                                f"{titulo_condicao}: *{', '.join(sorted(condicoes_perigosas))}*\n" # Adicionado sorted() para consistência
+                                f"{titulo_condicao}: *{', '.join(condicoes_perigosas)}*\n"
                                 f"Mensagem Original:\n`{mensagem_real}`\n\n"
                                 f"(Hora do Agente: {agora_utc.strftime('%Y-%m-%d %H:%M:%S UTC')})"
                             )
                             enviar_mensagem_telegram(TELEGRAM_CHAT_ID, alert_text)
                             alertas_enviados_cache[msg_hash_str] = agora_utc
-                            print(f"Alerta de {tipo_atual_mensagem} enviado para {aerodromo}: {', '.join(sorted(condicoes_perigosas))}")
+                            print(f"Alerta de {tipo_atual_mensagem} enviado para {aerodromo}: {', '.join(condicoes_perigosas)}")
                         else:
                             print(f"{tipo_atual_mensagem} para {aerodromo} sem condições perigosas detectadas: {mensagem_real[:70]}...")
                     else:
@@ -224,7 +274,6 @@ def verificar_e_alertar():
                 print(f"Falha ao obter ou processar dados para {endpoint.upper()} de {aerodromo}.")
         print(f"--- Fim do processamento para Aeródromo: {aerodromo} ---")
 
-    # Limpeza do cache
     chaves_para_remover = [
         msg_hash for msg_hash, timestamp_envio in alertas_enviados_cache.items()
         if isinstance(timestamp_envio, datetime) and (agora_utc - timestamp_envio > timedelta(hours=24))
