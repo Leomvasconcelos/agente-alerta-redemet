@@ -23,18 +23,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests pytz
 
-      - name: Baixar Cache de Alertas Anterior
-        uses: dawidd6/action-download-artifact@v3
+      # --- NOVA ABORDAGEM DE CACHE PERSISTENTE ---
+      # Substituímos os passos de upload/download por esta action oficial do GitHub
+      - name: Carregar/Salvar Cache de Alertas
+        uses: actions/cache@v4
         with:
-          github_token: ${{ secrets.ACTIONS_PAT }}
-          # Use o nome exato do seu arquivo de workflow
-          workflow: main.yml
-          branch: ${{ github.ref_name }}
-          name: persistent-alert-cache-artifact
-          path: .
-          # --- ALTERADO AQUI ---
-          # Muda de 'ignore' para 'warn' para nos avisar se o cache não for encontrado.
-          if_no_artifact_found: warn
+          # O caminho para o arquivo de cache que o script Python usa
+          path: persistent_alert_cache.json
+          # A chave principal é única para cada execução para garantir que o cache seja sempre salvo no final
+          key: alert-cache-${{ github.run_id }}
+          # A chave de restauração busca o cache mais recente que começa com "alert-cache-"
+          restore-keys: |
+            alert-cache-
 
       - name: Executar o script de alerta
         env:
@@ -42,9 +42,3 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           REDEMET_API_KEY: ${{ secrets.REDEMET_API_KEY }}
         run: python alerta_redemet_agente.py
-
-      - name: Fazer Upload do Novo Cache de Alertas
-        uses: actions/upload-artifact@v4
-        with:
-          name: persistent-alert-cache-artifact
-          path: persistent_alert_cache.json
