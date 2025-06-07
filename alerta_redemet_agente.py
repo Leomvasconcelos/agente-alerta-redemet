@@ -12,7 +12,7 @@ TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 REDEMET_API_KEY = os.getenv('REDEMET_API_KEY')
 
 # Aeródromo de interesse
-AERODROMOS_INTERESSE = ["SBGR"]
+AERODROMOS_INTERESSE = ["SBTA"]
 
 # Fenômenos significativos para METAR/TAF/SPECI, conforme solicitado
 SIGNIFICANT_PHENOMENA_METAR_TAF = {
