@@ -1,8 +1,8 @@
-name: Alerta MET REDEMET
+name: Agente Inteligência Artificial de Alerta Meteorológico SBTA
 
 on:
   schedule:
-    # Executa a cada 5 minutos. Você pode ajustar este valor.
+    # Executa a cada 5 minutos.
     - cron: '*/5 * * * *'
   workflow_dispatch: # Permite que você execute este workflow manualmente na aba "Actions" do GitHub
 
@@ -16,25 +16,25 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10' # Ou a versão que você usa
+          python-version: '3.10'
 
       - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
           pip install requests pytz
 
-      # --- PASSO MODIFICADO ---
-      # A linha 'workflow' foi alterada para usar o nome do arquivo, que é mais confiável.
       - name: Baixar Cache de Alertas Anterior
         uses: dawidd6/action-download-artifact@v3
         with:
           github_token: ${{ secrets.ACTIONS_PAT }}
-          # SUBSTITUA 'main.yml' ABAIXO PELO NOME EXATO DO SEU ARQUIVO DE WORKFLOW
+          # Use o nome exato do seu arquivo de workflow
           workflow: main.yml
           branch: ${{ github.ref_name }}
           name: persistent-alert-cache-artifact
           path: .
-          if_no_artifact_found: ignore
+          # --- ALTERADO AQUI ---
+          # Muda de 'ignore' para 'warn' para nos avisar se o cache não for encontrado.
+          if_no_artifact_found: warn
 
       - name: Executar o script de alerta
         env:
@@ -46,7 +46,5 @@ jobs:
       - name: Fazer Upload do Novo Cache de Alertas
         uses: actions/upload-artifact@v4
         with:
-          # O nome do artefato deve ser o mesmo usado no passo de download
           name: persistent-alert-cache-artifact
-          # O caminho para o arquivo de cache que o script Python salvou
           path: persistent_alert_cache.json
