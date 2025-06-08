@@ -91,20 +91,16 @@ def analisar_condicoes_significativas(texto_analise):
     """Analisa um texto e retorna um set de condições significativas encontradas."""
     condicoes = set()
     
-    # 1. Fenômenos (TS, FG, GR)
     for codigo, descricao in SIGNIFICANT_PHENOMENA.items():
         if re.search(r'\b\+?' + re.escape(codigo), texto_analise):
             condicoes.add(descricao)
             
-    # 2. Cinzas Vulcânicas (VA)
     if re.search(r'\bVA\b', texto_analise):
         condicoes.add("Cinzas Vulcânicas")
 
-    # 3. Teto Baixo (< 600ft)
     if re.search(r'\b(BKN|OVC)00[0-5]', texto_analise):
          condicoes.add("Teto Baixo (< 600ft)")
 
-    # 4. Vento Forte (>= 20kt)
     wind_match = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', texto_analise)
     if wind_match:
         sustained_wind = int(wind_match.group(2))
@@ -112,8 +108,7 @@ def analisar_condicoes_significativas(texto_analise):
         if sustained_wind >= 20 or (gust_wind_str and int(gust_wind_str) >= 20):
             condicoes.add("Vento Forte (>= 20kt)")
     
-    # 5. Nuvens Cumulonimbus (CB) - AJUSTE APLICADO AQUI
-    cb_matches = re.findall(r'(FEW|SCT|BKN|OVC)(\d{3})(CB)', texto_analise) # Removido |TCU
+    cb_matches = re.findall(r'(FEW|SCT|BKN|OVC)(\d{3})(CB)', texto_analise)
     for match in cb_matches:
         altitude_ft = int(match[1]) * 100
         condicoes.add(f"Presença de CB a {altitude_ft}ft")
@@ -125,7 +120,6 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
     alertas_encontrados = set()
     mensagem_upper = mensagem_texto.upper()
 
-    # --- Lógica para Avisos de Aeródromo ---
     if "AD WRNG" in tipo_mensagem.upper() or "AVISO DE AERÓDROMO" in tipo_mensagem.upper():
         if "TS" in mensagem_upper or "TROVOADA" in mensagem_upper: alertas_encontrados.add("Trovoada")
         wind_warning_match = re.search(r'SFC WSPD (\d+)KT(?: MAX (\d+)(?:KT)?)?', mensagem_upper)
@@ -138,12 +132,16 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
         if "FG" in mensagem_upper or "NEVOEIRO" in mensagem_upper: alertas_encontrados.add("Nevoeiro")
         if "CHUVA FORTE" in mensagem_upper or re.search(r'\+RA\b', mensagem_upper): alertas_encontrados.add("Chuva Forte")
         if "WIND SHEAR" in mensagem_upper or re.search(r'\bWS\b', mensagem_upper): alertas_encontrados.add("Tesoura de Vento (Wind Shear)")
-        if "VA" in mensagem_upper: alertas_encontrados.add("Cinzas Vulcânicas (VA)")
+        
+        # --- CORREÇÃO APLICADA AQUI ---
+        # Usa regex com fronteira de palavra (\b) para evitar falso positivo em "VALID"
+        if re.search(r'\bVA\b', mensagem_upper): 
+            alertas_encontrados.add("Cinzas Vulcânicas (VA)")
+            
         if "FUMAÇA" in mensagem_upper or "FU" in mensagem_upper: alertas_encontrados.add("Fumaça")
         if not alertas_encontrados: alertas_encontrados.add("Aviso de Aeródromo Emitido (ver detalhes)")
     
-    # --- Lógica Unificada para METAR, SPECI e TAF ---
-    else:
+    else: # Lógica Unificada para METAR, SPECI e TAF
         alertas_encontrados.update(analisar_condicoes_significativas(mensagem_upper))
 
     return sorted(list(alertas_encontrados))
