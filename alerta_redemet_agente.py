@@ -62,8 +62,6 @@ def save_api_status():
     except Exception as e:
         print(f"Erro ao salvar status da API: {e}")
 
-
-# --- Funções de Comunicação e Coleta ---
 def enviar_mensagem_telegram(chat_id, texto):
     if not TELEGRAM_BOT_TOKEN or not chat_id: return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -71,7 +69,7 @@ def enviar_mensagem_telegram(chat_id, texto):
     try:
         response = requests.post(url, json=payload, timeout=10)
         response.raise_for_status()
-        print(f"Mensagem de sistema/alerta enviada com sucesso.")
+        print(f"Mensagem enviada com sucesso.")
     except requests.exceptions.RequestException as e:
         print(f"Erro ao enviar mensagem para o Telegram: {e}")
 
@@ -94,8 +92,6 @@ def obter_mensagens_redemet(endpoint, aerodromo):
         print(f"FALHA na requisição para {endpoint} de {aerodromo}: {e}")
         return False, []
 
-
-# --- NÚCLEO DE ANÁLISE ---
 def analisar_condicoes_significativas(texto_analise):
     condicoes = set()
     for codigo, descricao in SIGNIFICANT_PHENOMENA.items():
@@ -104,14 +100,12 @@ def analisar_condicoes_significativas(texto_analise):
     if re.search(r'\b(BKN|OVC)00[0-5]', texto_analise): condicoes.add("Teto Baixo (< 600ft)")
     wind_match = re.search(r'(\d{3}|VRB)(\d{2,3})(G(\d{2,3}))?KT', texto_analise)
     if wind_match:
-        sustained_wind = int(wind_match.group(2))
-        gust_wind_str = wind_match.group(4)
+        sustained_wind, gust_wind_str = int(wind_match.group(2)), wind_match.group(4)
         if sustained_wind >= 20 or (gust_wind_str and int(gust_wind_str) >= 20):
             condicoes.add("Vento Forte (>= 20kt)")
     cb_matches = re.findall(r'(FEW|SCT|BKN|OVC)(\d{3})(CB)', texto_analise)
     for match in cb_matches:
-        altitude_ft = int(match[1]) * 100
-        condicoes.add(f"Presença de CB a {altitude_ft}ft")
+        condicoes.add(f"Presença de CB a {int(match[1]) * 100}ft")
     return condicoes
 
 def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
@@ -131,72 +125,70 @@ def analisar_mensagem_meteorologica(mensagem_texto, tipo_mensagem):
         alertas_encontrados.update(analisar_condicoes_significativas(mensagem_upper))
     return sorted(list(alertas_encontrados))
 
-# --- LÓGICA PRINCIPAL DE EXECUÇÃO ---
 def verificar_e_alertar():
     global alertas_enviados_cache, api_status
     load_alert_cache()
     load_api_status()
-
     agora_utc = datetime.now(pytz.utc)
     print(f"[{agora_utc.strftime('%Y-%m-%d %H:%M:%S UTC')}] Iniciando verificação...")
-    
-    total_requests = 0
-    failed_requests = 0
+    total_requests, failed_requests = 0, 0
 
     for aerodromo in AERODROMOS_INTERESSE:
-        endpoints = ["aviso", "taf", "metar"]
         print(f"--- Processando Aeródromo: {aerodromo} ---")
-        for endpoint in endpoints:
+        for endpoint in ["aviso", "taf", "metar"]:
             total_requests += 1
             sucesso, data = obter_mensagens_redemet(endpoint, aerodromo)
-            
             if not sucesso:
                 failed_requests += 1
                 continue
-
-            # A lógica de processamento de mensagens continua aqui...
             for item_msg in data:
                 mensagem_real = item_msg.get('mens') or item_msg.get('mensagem') if isinstance(item_msg, dict) else item_msg
                 if not mensagem_real: continue
-                tipo_msg = "SPECI" if "SPECI" in mensagem_real.upper() else endpoint.upper()
+                tipo_msg = "AVISO DE AERÓDROMO" if endpoint == 'aviso' else ("SPECI" if "SPECI" in mensagem_real.upper() else endpoint.upper())
                 msg_hash_str = calcular_hash_mensagem_str(mensagem_real)
+                
+                # --- LOGS DE DEPURAÇÃO ADICIONADOS ---
+                print("\n--- INICIANDO VERIFICAÇÃO DE CACHE ---")
+                print(f"Analisando {tipo_msg}: {mensagem_real[:50]}...")
+                print(f"Hash da mensagem: {msg_hash_str}")
+                print(f"Chaves presentes no cache: {list(alertas_enviados_cache.keys())}")
+                # --- FIM DOS LOGS DE DEPURAÇÃO ---
+
                 if msg_hash_str not in alertas_enviados_cache:
+                    print(f"DECISÃO: Hash NÃO encontrado no cache. Analisando para possível alerta.")
                     condicoes_perigosas = analisar_mensagem_meteorologica(mensagem_real, tipo_msg)
                     if condicoes_perigosas:
                         emoji_alerta = "🚨" 
                         if tipo_msg == "TAF": emoji_alerta = "⚠️"
                         elif tipo_msg in ["METAR", "SPECI"]: emoji_alerta = "⚡️"
                         titulo_condicao = "Condições Reportadas" if tipo_msg in ["METAR", "SPECI"] else "Condições Previstas/Alertadas"
-                        alert_text = (
-                            f"{emoji_alerta} *NOVO ALERTA MET {aerodromo}!* {emoji_alerta}\n\n"
-                            f"Aeródromo: *{aerodromo}* - Tipo: *{tipo_msg.replace('AVISO','AVISO DE AERÓDROMO')}*\n"
-                            f"{titulo_condicao}: *{', '.join(condicoes_perigosas)}*\n"
-                            f"Mensagem Original:\n`{mensagem_real}`\n\n"
-                            f"(Hora do Agente: {agora_utc.strftime('%Y-%m-%d %H:%M:%S UTC')})"
-                        )
+                        alert_text = (f"{emoji_alerta} *NOVO ALERTA MET {aerodromo}!* {emoji_alerta}\n\n"
+                                      f"Aeródromo: *{aerodromo}* - Tipo: *{tipo_msg}*\n"
+                                      f"{titulo_condicao}: *{', '.join(condicoes_perigosas)}*\n"
+                                      f"Mensagem Original:\n`{mensagem_real}`\n\n"
+                                      f"(Hora do Agente: {agora_utc.strftime('%Y-%m-%d %H:%M:%S UTC')})")
                         enviar_mensagem_telegram(TELEGRAM_CHAT_ID, alert_text)
                         alertas_enviados_cache[msg_hash_str] = agora_utc
-                        print(f"Alerta de {tipo_msg} enviado para {aerodromo}")
+                        print(f"ALERTA ENVIADO para {tipo_msg} em {aerodromo}.")
+                    else:
+                        print("Nenhuma condição perigosa detectada nesta nova mensagem.")
+                else:
+                    print(f"DECISÃO: Hash ENCONTRADO no cache. Ignorando mensagem.")
+                print("--- FIM DA VERIFICAÇÃO DE CACHE ---\n")
 
-    # --- LÓGICA DE MONITORAMENTO DA API COM TEXTOS AJUSTADOS ---
-    FAILURE_THRESHOLD = 3
-    if failed_requests == total_requests: 
+    # Lógica de Monitoramento da API
+    if total_requests > 0 and failed_requests == total_requests:
         api_status["consecutive_failures"] += 1
-        print(f"Falha na conexão com a API. Contagem de falhas consecutivas: {api_status['consecutive_failures']}")
-        if api_status["consecutive_failures"] >= FAILURE_THRESHOLD and not api_status.get("failure_notified", False):
-            # Texto do alerta de API indisponível
-            msg_erro = "🚨 *ALERTA DE SISTEMA* 🚨\n\nAPI DA REDEMET INDISPONÍVEL NO MOMENTO"
-            enviar_mensagem_telegram(TELEGRAM_CHAT_ID, msg_erro)
+        if api_status["consecutive_failures"] >= 3 and not api_status.get("failure_notified", False):
+            enviar_mensagem_telegram(TELEGRAM_CHAT_ID, "🚨 *ALERTA DE SISTEMA* 🚨\n\nAPI DA REDEMET INDISPONÍVEL NO MOMENTO")
             api_status["failure_notified"] = True
-    else: 
+    else:
         if api_status.get("failure_notified", False):
-            # Texto do alerta de API restabelecida
-            msg_ok = "✅ *ALERTA DE SISTEMA* ✅\n\nBOAS NOTÍCIAS! O API DA REDEMET VOLTOU A NORMALIDADE"
-            enviar_mensagem_telegram(TELEGRAM_CHAT_ID, msg_ok)
+            enviar_mensagem_telegram(TELEGRAM_CHAT_ID, "✅ *ALERTA DE SISTEMA* ✅\n\nBOAS NOTÍCIAS! O API DA REDEMET VOLTOU A NORMALIDADE")
         api_status["consecutive_failures"] = 0
         api_status["failure_notified"] = False
 
-    # Limpeza do cache e salvamento
+    # Limpeza e salvamento dos caches
     chaves_para_remover = [h for h, ts in alertas_enviados_cache.items() if isinstance(ts, datetime) and (agora_utc - ts > timedelta(hours=24))]
     for h in chaves_para_remover: del alertas_enviados_cache[h]
     
@@ -209,4 +201,3 @@ if __name__ == "__main__":
     else:
         verificar_e_alertar()
         print(f"[{datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}] Verificação concluída.")
-
