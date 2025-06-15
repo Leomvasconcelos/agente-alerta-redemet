@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timedelta, timezone
 import pytz
 import re
+import hashlib # Importa a biblioteca de hash estável
 
 # --- Configurações ---
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
@@ -19,8 +20,15 @@ API_STATUS_FILE = "api_status.json"
 alertas_enviados_cache = {}
 api_status = {"consecutive_failures": 0, "failure_notified": False}
 
+# --- FUNÇÃO DE HASH ATUALIZADA ---
 def calcular_hash_mensagem_str(mensagem):
-    return str(hash(mensagem))
+    """Calcula um hash SHA-256 estável para uma mensagem string."""
+    # Converte a string para bytes, necessário para o hashlib
+    mensagem_bytes = mensagem.encode('utf-8')
+    # Cria o objeto de hash SHA-256
+    sha256_hash = hashlib.sha256(mensagem_bytes)
+    # Retorna a representação hexadecimal do hash (uma string longa e consistente)
+    return sha256_hash.hexdigest()
 
 def load_alert_cache():
     global alertas_enviados_cache
@@ -147,15 +155,7 @@ def verificar_e_alertar():
                 tipo_msg = "AVISO DE AERÓDROMO" if endpoint == 'aviso' else ("SPECI" if "SPECI" in mensagem_real.upper() else endpoint.upper())
                 msg_hash_str = calcular_hash_mensagem_str(mensagem_real)
                 
-                # --- LOGS DE DEPURAÇÃO ADICIONADOS ---
-                print("\n--- INICIANDO VERIFICAÇÃO DE CACHE ---")
-                print(f"Analisando {tipo_msg}: {mensagem_real[:50]}...")
-                print(f"Hash da mensagem: {msg_hash_str}")
-                print(f"Chaves presentes no cache: {list(alertas_enviados_cache.keys())}")
-                # --- FIM DOS LOGS DE DEPURAÇÃO ---
-
                 if msg_hash_str not in alertas_enviados_cache:
-                    print(f"DECISÃO: Hash NÃO encontrado no cache. Analisando para possível alerta.")
                     condicoes_perigosas = analisar_mensagem_meteorologica(mensagem_real, tipo_msg)
                     if condicoes_perigosas:
                         emoji_alerta = "🚨" 
@@ -173,10 +173,8 @@ def verificar_e_alertar():
                     else:
                         print("Nenhuma condição perigosa detectada nesta nova mensagem.")
                 else:
-                    print(f"DECISÃO: Hash ENCONTRADO no cache. Ignorando mensagem.")
-                print("--- FIM DA VERIFICAÇÃO DE CACHE ---\n")
+                    print(f"Mensagem para {tipo_msg} já se encontra no cache. Ignorando.")
 
-    # Lógica de Monitoramento da API
     if total_requests > 0 and failed_requests == total_requests:
         api_status["consecutive_failures"] += 1
         if api_status["consecutive_failures"] >= 3 and not api_status.get("failure_notified", False):
@@ -188,7 +186,6 @@ def verificar_e_alertar():
         api_status["consecutive_failures"] = 0
         api_status["failure_notified"] = False
 
-    # Limpeza e salvamento dos caches
     chaves_para_remover = [h for h, ts in alertas_enviados_cache.items() if isinstance(ts, datetime) and (agora_utc - ts > timedelta(hours=24))]
     for h in chaves_para_remover: del alertas_enviados_cache[h]
     
@@ -201,3 +198,4 @@ if __name__ == "__main__":
     else:
         verificar_e_alertar()
         print(f"[{datetime.now(pytz.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}] Verificação concluída.")
+
