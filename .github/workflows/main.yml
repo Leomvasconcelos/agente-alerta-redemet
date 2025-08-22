@@ -2,7 +2,7 @@ name: Agente Inteligência Artificial de Alerta Meteorológico SBTA
 
 on:
   schedule:
-    - cron: '*/7 * * * *'
+    - cron: '*/6 * * * *'
   workflow_dispatch:
 
 jobs:
