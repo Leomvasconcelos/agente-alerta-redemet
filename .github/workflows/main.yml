@@ -2,20 +2,21 @@ name: Agente Inteligência Artificial de Alerta Meteorológico SBTA
 
 on:
   schedule:
-    - cron: '*/7 * * * *'
+    - cron: '*/7 * * * *' # Executa a cada 7 minutos (em UTC)
   workflow_dispatch:
+
+permissions:
+  contents: write  # garante que o GITHUB_TOKEN pode dar push
 
 jobs:
   run_alert_agent:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      
+
     steps:
       - name: Checar o código do repositório
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.ACTIONS_PAT }}
+          token: ${{ secrets.GITHUB_TOKEN }}  # usa o token automático do GitHub
 
       - name: Configurar Python
         uses: actions/setup-python@v5
@@ -38,9 +39,7 @@ jobs:
         run: |
           git config --global user.name 'GitHub Actions Bot'
           git config --global user.email 'github-actions-bot@users.noreply.github.com'
-          # --- ALTERAÇÃO APLICADA AQUI ---
-          # Adiciona TODOS os arquivos .json que foram modificados
-          git add *.json
+          git add -A
           if ! git diff --staged --quiet; then
             git commit -m "Chore: Atualiza caches de estado"
             git push
